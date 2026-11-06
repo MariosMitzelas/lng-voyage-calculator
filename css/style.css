@@ -1,0 +1,379 @@
+/* ============================================================
+   LNG Voyage Calculator — Στυλ
+   Θαλασσινό σκούρο θέμα (γέφυρα / νύχτα), παγωμένο cyan accent.
+   ============================================================ */
+
+:root {
+  --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+  --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Επιφάνειες: βαθύ ναυτικό μπλε */
+  --bg: #0a1220;
+  --surface: #101b2e;
+  --surface-2: #15223a;
+  --surface-3: #1b2b46;
+  --border: rgba(148, 178, 214, 0.16);
+  --border-strong: rgba(148, 178, 214, 0.3);
+
+  --text: #dbe6f2;
+  --text-muted: #8fa5c0;
+  --text-faint: #5c7291;
+
+  --accent: #4fc2d8;
+  --accent-hover: #7dd6e8;
+  --accent-ink: #06222b;
+
+  --ok: #6dbf7b;
+  --warn: #e0b04a;
+  --danger: #e06868;
+
+  --radius-sm: 0.375rem; --radius-md: 0.5rem; --radius-lg: 0.75rem;
+
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  --transition: 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] {
+  --bg: #eef2f7;
+  --surface: #ffffff;
+  --surface-2: #f4f7fb;
+  --surface-3: #e8edf5;
+  --border: rgba(30, 58, 95, 0.14);
+  --border-strong: rgba(30, 58, 95, 0.28);
+  --text: #17283c;
+  --text-muted: #4e617c;
+  --text-faint: #7b8aa3;
+  --accent: #0e7490;
+  --accent-hover: #0a5a70;
+  --accent-ink: #ffffff;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  -webkit-text-size-adjust: none; text-size-adjust: none;
+  -webkit-font-smoothing: antialiased; scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh; line-height: 1.6;
+  font-family: var(--font-body); font-size: var(--text-base);
+  color: var(--text); background: var(--bg);
+}
+
+input, button, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+table { border-collapse: collapse; width: 100%; }
+
+:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm);
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+a, button, input, textarea, select {
+  transition: color var(--transition), background var(--transition),
+    border-color var(--transition), box-shadow var(--transition);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Κεφαλίδα ---------- */
+.app-header {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.app-header-inner {
+  max-width: 1180px; margin: 0 auto; padding: var(--space-4) var(--space-5);
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+}
+.brand { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
+.brand h1 { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.brand .sub { color: var(--text-muted); font-size: var(--text-xs); white-space: nowrap; }
+.header-actions { margin-left: auto; display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---------- Κουμπιά ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm); font-weight: 600;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--text);
+  min-height: 40px;
+}
+.btn:hover { background: var(--surface-3); }
+.btn.primary {
+  background: var(--accent); color: var(--accent-ink); border-color: transparent;
+}
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.small { padding: var(--space-1) var(--space-3); min-height: 34px; font-weight: 500; }
+.btn.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, transparent); }
+
+/* ---------- Tabs ---------- */
+.tabs {
+  max-width: 1180px; margin: 0 auto; padding: 0 var(--space-5);
+  display: flex; gap: var(--space-2); overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tab-btn {
+  padding: var(--space-3) var(--space-4); font-size: var(--text-sm); font-weight: 600;
+  color: var(--text-muted); border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0; white-space: nowrap; min-height: 44px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn .num {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--text-faint); margin-right: var(--space-1);
+}
+.tab-btn[aria-selected="true"] .num { color: var(--accent); }
+
+/* ---------- Sticky σύνοψη ---------- */
+.summary-bar {
+  position: sticky; top: 0; z-index: 40;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.summary-inner {
+  max-width: 1180px; margin: 0 auto; padding: var(--space-3) var(--space-5);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-4);
+}
+.sum-item { min-width: 0; }
+.sum-label {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-faint); font-weight: 600;
+}
+.sum-value {
+  font-family: var(--font-mono); font-size: var(--text-base); font-weight: 700;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sum-value.accent { color: var(--accent); }
+.sum-value.bad { color: var(--danger); }
+
+/* ---------- Κυρίως περιεχόμενο ---------- */
+main { max-width: 1180px; margin: 0 auto; padding: var(--space-6) var(--space-5) var(--space-12); }
+.panel { display: none; }
+.panel.active { display: block; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+.card > h2 {
+  font-size: var(--text-lg); font-weight: 700; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-3);
+}
+.card > h2 .step {
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700;
+  color: var(--accent-ink); background: var(--accent);
+  width: 1.6em; height: 1.6em; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: var(--radius-full, 9999px); flex: none;
+}
+.card .hint { color: var(--text-muted); font-size: var(--text-sm); margin-bottom: var(--space-5); }
+
+/* ---------- Φόρμες ---------- */
+.grid-form {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.field label {
+  font-size: var(--text-xs); font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.field input, .field select {
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm); min-height: 42px; width: 100%;
+}
+.field input:focus, .field select:focus {
+  border-color: var(--accent); background: var(--surface-3); outline: none;
+}
+.field input[type="number"], .field input[type="date"], .field input[type="time"] {
+  font-family: var(--font-mono);
+}
+.field .unit-hint { font-size: var(--text-xs); color: var(--text-faint); }
+fieldset {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5); margin: 0 0 var(--space-5);
+  display: grid; gap: var(--space-4) var(--space-5);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+fieldset legend {
+  padding: 0 var(--space-2); font-size: var(--text-sm); font-weight: 700; color: var(--text);
+}
+.radio-row { display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: center; }
+.radio-pill {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full, 9999px); font-size: var(--text-sm); cursor: pointer;
+  min-height: 40px;
+}
+.radio-pill input { accent-color: var(--accent); margin: 0; }
+.radio-pill:has(input:checked) { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ---------- Πίνακες ---------- */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.data-table { font-size: var(--text-sm); min-width: 560px; }
+.data-table th {
+  text-align: left; font-size: var(--text-xs); text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600;
+  padding: var(--space-3) var(--space-3); border-bottom: 1px solid var(--border);
+  background: var(--surface-2); white-space: nowrap;
+}
+.data-table td {
+  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table td.num, .data-table th.num { text-align: right; font-family: var(--font-mono); }
+.data-table input {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono); font-size: var(--text-sm); width: 110px; min-height: 38px;
+}
+.data-table td.num input { text-align: right; display: block; margin-left: auto; }
+.data-table input:focus { border-color: var(--accent); outline: none; }
+.data-table .row-del { color: var(--text-faint); min-height: 38px; padding: var(--space-1) var(--space-2); }
+.data-table .row-del:hover { color: var(--danger); }
+
+/* ---------- Αποτελέσματα ---------- */
+.result-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--space-4);
+}
+.result-box {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-4);
+}
+.result-box .r-label {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); font-weight: 600; margin-bottom: var(--space-1);
+}
+.result-box .r-value {
+  font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 700; line-height: 1.3;
+}
+.result-box .r-sub { font-size: var(--text-xs); color: var(--text-faint); margin-top: var(--space-1); }
+.result-box.hero {
+  background: color-mix(in oklab, var(--accent) 12%, var(--surface-2));
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+.result-box.hero .r-value { color: var(--accent); font-size: var(--text-xl); }
+
+.alert {
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm); margin-top: var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
+  background: color-mix(in oklab, var(--warn) 12%, var(--surface));
+  color: var(--text);
+}
+.alert.error {
+  border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  background: color-mix(in oklab, var(--danger) 12%, var(--surface));
+}
+.alert.ok {
+  border-color: color-mix(in oklab, var(--ok) 40%, transparent);
+  background: color-mix(in oklab, var(--ok) 10%, var(--surface));
+}
+
+/* ---------- Φωτογραφία / OCR ---------- */
+.photo-zone {
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-md);
+  padding: var(--space-5); text-align: center; color: var(--text-muted);
+}
+.photo-zone img {
+  max-width: 100%; max-height: 420px; margin: 0 auto; border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+#ocrText {
+  margin-top: var(--space-3); text-align: left; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs);
+  white-space: pre-wrap; max-height: 220px; overflow-y: auto; color: var(--text-muted);
+}
+
+/* ---------- Footer ---------- */
+.app-footer {
+  border-top: 1px solid var(--border); margin-top: var(--space-8);
+  padding: var(--space-5); text-align: center;
+  color: var(--text-faint); font-size: var(--text-xs);
+}
+.app-footer a { color: var(--text-muted); }
+
+/* ---------- Toast ---------- */
+#toast {
+  position: fixed; bottom: var(--space-5); left: 50%; transform: translateX(-50%);
+  background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm); z-index: 100; opacity: 0; pointer-events: none;
+  transition: opacity var(--transition); box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+#toast.show { opacity: 1; }
+
+/* ---------- Modal (φόρτωση ταξιδιού) ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(4, 10, 20, 0.6); z-index: 90;
+  display: none; align-items: center; justify-content: center; padding: var(--space-4);
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); max-width: 480px; width: 100%;
+  padding: var(--space-6); max-height: 80vh; overflow-y: auto;
+}
+.modal h3 { font-size: var(--text-lg); margin-bottom: var(--space-4); }
+.modal .voyage-item {
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: var(--space-2);
+}
+.modal .voyage-item .v-info { flex: 1; min-width: 0; }
+.modal .voyage-item .v-name { font-weight: 600; font-size: var(--text-sm); }
+.modal .voyage-item .v-date { font-size: var(--text-xs); color: var(--text-faint); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .app-header-inner { padding: var(--space-3) var(--space-4); }
+  .brand .sub { display: none; }
+  .tabs {
+    mask-image: linear-gradient(to right, black 86%, transparent);
+    mask-repeat: no-repeat;
+  }
+  .tab-btn { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
+  .table-wrap {
+    mask-image: linear-gradient(to right, black 94%, transparent);
+    mask-repeat: no-repeat;
+  }
+  .summary-inner { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+  .card { padding: var(--space-4); }
+  .field input, .field select { min-height: 46px; }
+  .data-table input { width: 84px; }
+}
+
+/* ---------- Εκτύπωση ---------- */
+@media print {
+  .app-header, .tabs, .header-actions, .no-print, #toast { display: none !important; }
+  body { background: #fff; color: #000; }
+  .panel { display: block !important; }
+  .card, .result-box, .data-table th, .data-table td { border-color: #bbb; background: #fff; color: #000; }
+  .summary-bar { position: static; background: #fff; }
+}

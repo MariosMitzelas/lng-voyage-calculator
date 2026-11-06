@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Υπολογισμός πλόου LNG carriers: αποστάσεις λιμένων, ταχύτητα, καταναλώσεις, FOE, ROB, safety margin, cool-down και max intake.">
+  <title>VoyageCalc LNG — Υπολογισμός Πλόου &amp; Φορτίου</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='24' font-size='24'>⚓</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="brand">
+        <h1>VoyageCalc LNG</h1>
+        <span class="sub">Υπολογισμός πλόου &amp; φορτίου LNG carriers</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn" id="btnSave" data-testid="button-save">Αποθήκευση</button>
+        <button class="btn" id="btnLoad" data-testid="button-load">Φόρτωση</button>
+        <button class="btn" id="btnExport" data-testid="button-export">Εξαγωγή</button>
+        <label class="btn" for="btnImport" data-testid="button-import" style="margin:0">Εισαγωγή</label>
+        <input type="file" id="btnImport" accept="application/json" class="sr-only">
+        <button class="btn" id="btnReport" data-testid="button-report">Αναφορά</button>
+        <button class="btn" id="btnPrint" data-testid="button-print">Εκτύπωση</button>
+        <button class="btn" id="themeToggle" aria-label="Εναλλαγή φωτεινού/σκούρου θέματος" data-testid="button-theme">☀/☾</button>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Ενότητες εφαρμογής">
+      <button class="tab-btn" role="tab" aria-selected="true" data-panel="panel-voyage" data-testid="tab-voyage"><span class="num">1</span>Ταξίδι &amp; Απόσταση</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-cons" data-testid="tab-cons"><span class="num">2</span>Καταναλώσεις</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-lng" data-testid="tab-lng"><span class="num">3</span>LNG &amp; Bunkers</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-results" data-testid="tab-results"><span class="num">4</span>Σύνοψη</button>
+    </nav>
+  </header>
+
+  <div class="summary-bar" aria-label="Ζωντανή σύνοψη αποτελεσμάτων">
+    <div class="summary-inner">
+      <div class="sum-item"><div class="sum-label">Απόσταση</div><div class="sum-value" id="sumDist" data-testid="text-sum-dist">—</div></div>
+      <div class="sum-item"><div class="sum-label">Διάρκεια</div><div class="sum-value" id="sumDays" data-testid="text-sum-days">—</div></div>
+      <div class="sum-item"><div class="sum-label">Ταχύτητα</div><div class="sum-value accent" id="sumSpeed" data-testid="text-sum-speed">—</div></div>
+      <div class="sum-item"><div class="sum-label">LNG ταξιδίου</div><div class="sum-value" id="sumLng" data-testid="text-sum-lng">—</div></div>
+      <div class="sum-item"><div class="sum-label">Max Intake</div><div class="sum-value accent" id="sumMaxIntake" data-testid="text-sum-maxintake">—</div></div>
+    </div>
+  </div>
+
+  <main>
+
+    <!-- ================= 1. ΤΑΞΙΔΙ ================= -->
+    <section class="panel active" id="panel-voyage" role="tabpanel" aria-label="Ταξίδι και απόσταση">
+
+      <div class="card">
+        <h2><span class="step">1</span>Λιμένες</h2>
+        <p class="hint">Επιλέξτε λιμένα αναχώρησης και άφιξης. Η ζώνη ώρας συμπληρώνεται αυτόματα από τη βάση λιμένων (χειμερινή ώρα — προσαρμόστε αν ισχύει θερινή).</p>
+        <div class="grid-form">
+          <div class="field">
+            <label for="fromPort">Λιμένας αναχώρησης</label>
+            <select id="fromPort" data-testid="select-from"></select>
+          </div>
+          <div class="field">
+            <label for="toPort">Λιμένας άφιξης</label>
+            <select id="toPort" data-testid="select-to"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="step">2</span>Απόσταση πλόου</h2>
+        <p class="hint">Ο υπολογισμός great-circle × συντελεστής δρομολόγησης δίνει προκαταρκτική τιμή. Για ακρίβεια, καταχωρίστε τη θαλάσσια απόσταση από το passage plan του πλοίου.</p>
+        <div class="radio-row" style="margin-bottom:var(--space-4)">
+          <label class="radio-pill"><input type="radio" name="distMode" id="distModeGc" checked> Great-circle × συντελεστής</label>
+          <label class="radio-pill"><input type="radio" name="distMode" id="distModeManual"> Χειροκίνητη απόσταση (passage plan)</label>
+        </div>
+        <div class="grid-form">
+          <div class="field">
+            <label for="routingFactor">Συντελεστής δρομολόγησης</label>
+            <input type="number" id="routingFactor" step="0.01" min="1" max="1.5" value="1.04">
+            <span class="unit-hint">π.χ. 1.04 (canal / traffic deviations)</span>
+          </div>
+          <div class="field">
+            <label for="manualDist">Θαλάσσια απόσταση (nm)</label>
+            <input type="number" id="manualDist" step="1" min="0" value="5000">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="step">3</span>Χρόνος &amp; Ζώνες Ώρας</h2>
+        <p class="hint">Ημερομηνίες/ώρες τοπικές σε κάθε λιμένα. Ο υπολογισμός της διάρκειας λαμβάνει υπόψη τις διαφορές ζωνών ώρας (π.χ. αναχώρηση UTC+3, άφιξη UTC−4).</p>
+        <fieldset>
+          <legend>Αναχώρηση</legend>
+          <div class="field">
+            <label for="depDate">Ημερομηνία</label>
+            <input type="date" id="depDate">
+          </div>
+          <div class="field">
+            <label for="depTime">Ώρα</label>
+            <input type="time" id="depTime" value="12:00">
+          </div>
+          <div class="field">
+            <label for="depTz">Ζώνη ώρας</label>
+            <select id="depTz"></select>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Άφιξη</legend>
+          <div class="field">
+            <label for="arrDate">Ημερομηνία</label>
+            <input type="date" id="arrDate">
+          </div>
+          <div class="field">
+            <label for="arrTime">Ώρα</label>
+            <input type="time" id="arrTime" value="12:00">
+          </div>
+          <div class="field">
+            <label for="arrTz">Ζώνη ώρας</label>
+            <select id="arrTz"></select>
+          </div>
+        </fieldset>
+        <div class="radio-row">
+          <label class="radio-pill"><input type="radio" name="speedMode" id="speedModeEta" checked> Έχω ημερομηνία άφιξης → βρες ταχύτητα</label>
+          <label class="radio-pill"><input type="radio" name="speedMode" id="speedModeSpd"> Έχω ταχύτητα → βρες ETA</label>
+        </div>
+        <div class="grid-form" style="margin-top:var(--space-4)">
+          <div class="field">
+            <label for="serviceSpeed">Ταχύτητα λειτουργίας (kn)</label>
+            <input type="number" id="serviceSpeed" step="0.1" min="5" max="25" value="16.5" disabled>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Αποτελέσματα ταξιδίου</h2>
+        <div class="result-grid">
+          <div class="result-box"><div class="r-label">Great circle</div><div class="r-value" id="resGc" data-testid="text-res-gc">—</div></div>
+          <div class="result-box"><div class="r-label">Απόσταση πλόου</div><div class="r-value" id="resRouteDist" data-testid="text-res-dist">—</div></div>
+          <div class="result-box"><div class="r-label">Διάρκεια</div><div class="r-value" id="resDuration" data-testid="text-res-duration">—</div></div>
+          <div class="result-box hero"><div class="r-label">Προτεινόμενη ταχύτητα</div><div class="r-value" id="resSpeed" data-testid="text-res-speed">—</div><div class="r-sub" id="resSpeedNote"></div></div>
+          <div class="result-box"><div class="r-label">Αναχώρηση (UTC)</div><div class="r-value" style="font-size:var(--text-sm)" id="resDepUtc">—</div></div>
+          <div class="result-box"><div class="r-label">Άφιξη (UTC)</div><div class="r-value" style="font-size:var(--text-sm)" id="resArrUtc">—</div></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= 2. ΚΑΤΑΝΑΛΩΣΕΙΣ ================= -->
+    <section class="panel" id="panel-cons" role="tabpanel" aria-label="Καταναλώσεις">
+
+      <div class="card">
+        <h2><span class="step">1</span>Πίνακας καταναλώσεων πλοίου</h2>
+        <p class="hint">Καταχωρίστε τις τιμές του πλοίου σας (από το fuel / performance report ή το noon report table): κατανάλωση ανά ταχύτητα σε LNG (m³/ημέρα), Fuel Oil (t/ημέρα) και Diesel (t/ημέρα). Ο υπολογισμός γίνεται με γραμμική παρεμβολή.</p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Ταχύτητα (kn)</th>
+                <th class="num">LNG (m³/ημ)</th>
+                <th class="num">Fuel Oil (t/ημ)</th>
+                <th class="num">MDO (t/ημ)</th>
+                <th class="sr-only">Ενέργειες</th>
+              </tr>
+            </thead>
+            <tbody id="consBody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
+          <button class="btn small" id="addRow" data-testid="button-add-row">+ Προσθήκη σειράς</button>
+        </div>
+        <div class="alert" style="display:none" id="consWarn">Η ταχύτητα είναι εκτός εύρους του πίνακα — η τιμή είναι εκτίμηση (extrapolation).</div>
+      </div>
+
+      <div class="card">
+        <h2><span class="step">2</span>Φωτογραφία πίνακα (import photo)</h2>
+        <p class="hint">Ανεβάστε φωτογραφία του πίνακα καταναλώσεων του πλοίου για αναφορά δίπλα στην εισαγωγή τιμών. Με σύνδεση ίντερνετ, μπορείτε να δοκιμάσετε και αυτόματη ανάγνωση (OCR).</p>
+        <label class="btn primary" for="photoInput" data-testid="button-photo" style="margin-bottom:var(--space-4)">📷 Μεταφόρτωση φωτογραφίας</label>
+        <input type="file" id="photoInput" accept="image/*" class="sr-only">
+        <div class="photo-zone" id="photoPreview" data-testid="img-photo-zone">Δεν έχει φορτωθεί φωτογραφία</div>
+        <div id="photoActions" style="display:none;margin-top:var(--space-3);gap:var(--space-2);flex-wrap:wrap">
+          <button class="btn small" id="ocrBtn" data-testid="button-ocr">Ανάγνωση κειμένου (OCR)</button>
+          <button class="btn small danger" id="clearPhoto" data-testid="button-clear-photo">Αφαίρεση φωτογραφίας</button>
+        </div>
+        <div id="ocrText" style="display:none"></div>
+      </div>
+
+      <div class="card">
+        <h2>Συνολική κατανάλωση ταξιδίου</h2>
+        <div class="result-grid">
+          <div class="result-box hero"><div class="r-label">LNG ταξιδίου</div><div class="r-value" style="font-size:var(--text-base)" id="totLng" data-testid="text-tot-lng">—</div><div class="r-sub">m³ και τόνοι</div></div>
+          <div class="result-box"><div class="r-label">Fuel Oil</div><div class="r-value" id="totFo" data-testid="text-tot-fo">—</div></div>
+          <div class="result-box"><div class="r-label">Diesel (MDO)</div><div class="r-value" id="totMdo" data-testid="text-tot-mdo">—</div></div>
+          <div class="result-box"><div class="r-label">FOE LNG</div><div class="r-value" id="totFoe" data-testid="text-tot-foe">—</div></div>
+          <div class="result-box"><div class="r-label">Συνολικό FOE</div><div class="r-value" id="totFoeAll" data-testid="text-tot-foe-all">—</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Κατανάλωση στη ταχύτητα πλόου</h2>
+        <div class="result-grid">
+          <div class="result-box hero"><div class="r-label" id="consAt">—</div><div class="r-value" style="font-size:var(--text-base)" id="consLngDay" data-testid="text-cons-lng">—</div><div class="r-sub">LNG (m³ &amp; t ανά ημέρα)</div></div>
+          <div class="result-box"><div class="r-label">Fuel Oil</div><div class="r-value" id="consFoDay" data-testid="text-cons-fo">—</div><div class="r-sub">ανά ημέρα</div></div>
+          <div class="result-box"><div class="r-label">Diesel (MDO)</div><div class="r-value" id="consMdoDay" data-testid="text-cons-mdo">—</div><div class="r-sub">ανά ημέρα</div></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= 3. LNG & BUNKERS ================= -->
+    <section class="panel" id="panel-lng" role="tabpanel" aria-label="LNG και bunkers">
+
+      <div class="card">
+        <h2><span class="step">1</span>Παράμετροι πλοίου &amp; φορτίου</h2>
+        <p class="hint">Όλες οι τιμές είναι επεξεργάσιμες — προσαρμόστε τις στα δεδομένα του πλοίου σας.</p>
+        <fieldset>
+          <legend>Φυσικά μεγέθη</legend>
+          <div class="field">
+            <label for="density">Πυκνότητα LNG (t/m³)</label>
+            <input type="number" id="density" step="0.001" min="0.35" max="0.55" value="0.45">
+            <span class="unit-hint">τυπικά 0.42–0.47 ανά φορτίο</span>
+          </div>
+          <div class="field">
+            <label for="cvLNG">Θερμογόνος δύναμη LNG (kcal/kg)</label>
+            <input type="number" id="cvLNG" step="10" min="10000" max="14000" value="12430">
+          </div>
+          <div class="field">
+            <label for="cvFOE">Θερμογόνος βάση FOE (kcal/kg)</label>
+            <input type="number" id="cvFOE" step="10" min="10000" max="14000" value="11500">
+            <span class="unit-hint">1 t LNG = CV<sub>LNG</sub>/CV<sub>FOE</sub> t FOE</span>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Δεξαμενές φορτίου</legend>
+          <div class="field">
+            <label for="capacity">Συνολική χωρητικότητα (m³)</label>
+            <input type="number" id="capacity" step="100" min="1000" value="174000">
+          </div>
+          <div class="field">
+            <label for="fillPct">Μέγιστο γέμισμα (%)</label>
+            <input type="number" id="fillPct" step="0.1" min="90" max="100" value="98.5">
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Safety margin &amp; Cool-down</legend>
+          <div class="field">
+            <label for="marginPct">Safety margin (%)</label>
+            <input type="number" id="marginPct" step="1" min="0" max="50" value="10">
+            <span class="unit-hint">πρόσθετη κατανάλωση ως ασφάλεια</span>
+          </div>
+          <div class="field">
+            <label for="coolTanks">Cool-down δεξαμενών (m³)</label>
+            <input type="number" id="coolTanks" step="1" min="0" value="150">
+            <span class="unit-hint">ποσότητα για πάγωμα δεξαμενών</span>
+          </div>
+          <div class="field">
+            <label for="coolLine">Cool-down γραμμής (m³)</label>
+            <input type="number" id="coolLine" step="1" min="0" value="30">
+            <span class="unit-hint">ποσότητα για γραμμή φόρτωσης</span>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="card">
+        <h2><span class="step">2</span>Ποσότητες αναχώρησης (ROB)</h2>
+        <p class="hint">Τις ποσότητες που απέπλευσε το πλοίο — LNG (heel), Fuel Oil και Diesel.</p>
+        <div class="grid-form">
+          <div class="field">
+            <label for="robLng">LNG ROB αναχώρησης (m³)</label>
+            <input type="number" id="robLng" step="1" min="0" value="4000">
+          </div>
+          <div class="field">
+            <label for="robFo">Fuel Oil ROB (t)</label>
+            <input type="number" id="robFo" step="1" min="0" value="800">
+          </div>
+          <div class="field">
+            <label for="robMdo">MDO ROB (t)</label>
+            <input type="number" id="robMdo" step="1" min="0" value="400">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Αποθέματα &amp; απαιτήσεις ταξιδίου</h2>
+        <div class="result-grid">
+          <div class="result-box"><div class="r-label">LNG αναχώρησης</div><div class="r-value" style="font-size:var(--text-base)" id="depLngOut" data-testid="text-dep-lng">—</div></div>
+          <div class="result-box"><div class="r-label">LNG άφιξης (υπολογισμός)</div><div class="r-value" style="font-size:var(--text-base)" id="arrLngOut" data-testid="text-arr-lng">—</div></div>
+          <div class="result-box"><div class="r-label">LNG άφιξης (με margin + cool-down)</div><div class="r-value" style="font-size:var(--text-base)" id="arrLngMarginOut" data-testid="text-arr-lng-margin">—</div></div>
+          <div class="result-box"><div class="r-label">FO αναχ. / άφιξης (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depFoOut">—</span> / <span id="arrFoOut">—</span></div></div>
+          <div class="result-box"><div class="r-label">MDO αναχ. / άφιξης (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depMdoOut">—</span> / <span id="arrMdoOut">—</span></div></div>
+          <div class="result-box"><div class="r-label">Cool-down δεξαμενές + γραμμή</div><div class="r-value" style="font-size:var(--text-base)" id="coolOut" data-testid="text-cool">—</div></div>
+          <div class="result-box"><div class="r-label">Safety margin</div><div class="r-value" style="font-size:var(--text-base)" id="marginOut" data-testid="text-margin">—</div></div>
+          <div class="result-box hero"><div class="r-label">Συνολική απαιτούμενη ποσότητα LNG</div><div class="r-value" id="reqOut" data-testid="text-required">—</div><div class="r-sub">κατανάλωση + margin + cool-down</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Max Intake — μέγιστη φόρτωση</h2>
+        <p class="hint">Με βάση το heel που θα έχετε στην άφιξη (με margin): Max Intake = (χωρητικότητα × μέγιστο γέμισμα) − heel άφιξης.</p>
+        <div class="result-grid">
+          <div class="result-box"><div class="r-label">Χρησιμοποιήσιμος χώρος</div><div class="r-value" id="maxUsable" data-testid="text-usable">—</div></div>
+          <div class="result-box"><div class="r-label">Heel άφιξης (με margin)</div><div class="r-value" id="maxHeel" data-testid="text-heel">—</div></div>
+          <div class="result-box hero" id="maxIntakeBox"><div class="r-label">MAX INTAKE</div><div class="r-value" id="maxIntakeOut" data-testid="text-maxintake">—</div><div class="r-sub" id="maxIntakeTOut">—</div></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= 4. ΣΥΝΟΨΗ ================= -->
+    <section class="panel" id="panel-results" role="tabpanel" aria-label="Σύνοψη αποτελεσμάτων">
+      <div id="warnings" data-testid="text-warnings"></div>
+      <div class="card">
+        <h2>Πλήρης σύνοψη πλόου</h2>
+        <div class="table-wrap">
+          <table class="data-table" id="fullSummary" data-testid="table-summary"></table>
+        </div>
+        <div style="margin-top:var(--space-4);display:flex;gap:var(--space-2);flex-wrap:wrap" class="no-print">
+          <button class="btn primary" id="btnReport2" data-testid="button-report2">Λήψη αναφοράς (HTML)</button>
+          <button class="btn" id="btnPrint2" data-testid="button-print2">Εκτύπωση / PDF</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>FOE — Fuel Oil Equivalent</h2>
+        <div class="result-grid">
+          <div class="result-box"><div class="r-label">Συντελεστής FOE</div><div class="r-value" id="foeFactorOut" data-testid="text-foe-factor">—</div><div class="r-sub">1 t LNG = X t FOE</div></div>
+          <div class="result-box"><div class="r-label">FOE LNG ταξιδίου</div><div class="r-value" id="foeLngOut" data-testid="text-foe-lng">—</div></div>
+          <div class="result-box"><div class="r-label">Συνολικό FOE (LNG+FO+MDO)</div><div class="r-value" id="foeAllOut" data-testid="text-foe-all">—</div></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    VoyageCalc LNG v1.0 — Εργαλείο υπολογισμών πλόου για LNG carriers. Οι αποστάσεις είναι ενδεικτικές (great-circle)· χρησιμοποιείτε πάντα το εγκεκριμένο passage plan του πλοίου.
+    <br>Built with <a href="https://www.perplexity.ai" rel="noopener">Perplexity</a>
+  </footer>
+
+  <div class="modal-backdrop" id="loadModal" role="dialog" aria-modal="true" aria-label="Φόρτωση ταξιδιού">
+    <div class="modal">
+      <h3>Αποθηκευμένα ταξίδια</h3>
+      <div id="voyageList"></div>
+      <button class="btn" id="modalClose" style="margin-top:var(--space-3)">Κλείσιμο</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/ports.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
