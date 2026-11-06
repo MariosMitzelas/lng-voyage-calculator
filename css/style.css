@@ -233,6 +233,31 @@ fieldset legend {
 .radio-pill input { accent-color: var(--accent); margin: 0; }
 .radio-pill:has(input:checked) { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
+/* ---------- Σκέλη πλόου ---------- */
+.leg-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(150px, 1.4fr) minmax(150px, 1.2fr) 90px minmax(140px, 1.4fr) 40px;
+  gap: var(--space-3);
+  align-items: end;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.leg-row:last-child { border-bottom: none; }
+.leg-meta { min-width: 0; padding-bottom: var(--space-2); }
+.leg-dist {
+  font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700;
+  color: var(--accent); display: inline-block; max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.leg-dist .src-tag { color: var(--text-faint); font-weight: 400; font-size: var(--text-xs); }
+.leg-del { align-self: end; margin-bottom: var(--space-1); }
+
+@media (max-width: 900px) {
+  .leg-row { grid-template-columns: 1fr 1fr; }
+  .leg-row .leg-del { grid-column: 2; justify-self: end; align-self: start; margin: 0; }
+  .leg-row .leg-meta { grid-column: 1 / -1; padding-bottom: 0; }
+}
+
 /* ---------- Πίνακες ---------- */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .data-table { font-size: var(--text-sm); min-width: 560px; }

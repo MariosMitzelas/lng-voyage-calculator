@@ -54,42 +54,33 @@
     <section class="panel active" id="panel-voyage" role="tabpanel" aria-label="Ταξίδι και απόσταση">
 
       <div class="card">
-        <h2><span class="step">1</span>Λιμένες</h2>
-        <p class="hint">Επιλέξτε λιμένα αναχώρησης και άφιξης. Η ζώνη ώρας συμπληρώνεται αυτόματα από τη βάση λιμένων (χειμερινή ώρα — προσαρμόστε αν ισχύει θερινή).</p>
-        <div class="grid-form">
-          <div class="field">
-            <label for="fromPort">Λιμένας αναχώρησης</label>
-            <select id="fromPort" data-testid="select-from"></select>
-          </div>
-          <div class="field">
-            <label for="toPort">Λιμένας άφιξης</label>
-            <select id="toPort" data-testid="select-to"></select>
-          </div>
+        <h2><span class="step">1</span>Σκέλη πλόου</h2>
+        <p class="hint">Ορίστε το πλάνο του πλόου σκέλος-σκέλος. Για διέλευση από Σουέζ ή Παναμά, προσθέστε σκέλος Port Said → Suez ή Cristóbal → Balboa — η απόσταση και οι ώρες διέλευσης της διώρυγας υπολογίζονται αυτόματα. Οι ζώνες ώρας αναχώρησης/άφιξης ακολουθούν αυτόματα τους ακραίους λιμένες.</p>
+        <div id="legsList" data-testid="list-legs"></div>
+        <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
+          <button class="btn small" id="addLeg" data-testid="button-add-leg">+ Προσθήκη σκέλους</button>
         </div>
-      </div>
-
-      <div class="card">
-        <h2><span class="step">2</span>Απόσταση πλόου</h2>
-        <p class="hint">Ο υπολογισμός great-circle × συντελεστής δρομολόγησης δίνει προκαταρκτική τιμή. Για ακρίβεια, καταχωρίστε τη θαλάσσια απόσταση από το passage plan του πλοίου.</p>
-        <div class="radio-row" style="margin-bottom:var(--space-4)">
-          <label class="radio-pill"><input type="radio" name="distMode" id="distModeGc" checked> Great-circle × συντελεστής</label>
-          <label class="radio-pill"><input type="radio" name="distMode" id="distModeManual"> Χειροκίνητη απόσταση (passage plan)</label>
-        </div>
-        <div class="grid-form">
+        <div class="grid-form" style="margin-top:var(--space-5)">
           <div class="field">
             <label for="routingFactor">Συντελεστής δρομολόγησης</label>
             <input type="number" id="routingFactor" step="0.01" min="1" max="1.5" value="1.04">
-            <span class="unit-hint">π.χ. 1.04 (canal / traffic deviations)</span>
+            <span class="unit-hint">π.χ. 1.04 (traffic / weather deviations)</span>
           </div>
           <div class="field">
-            <label for="manualDist">Θαλάσσια απόσταση (nm)</label>
-            <input type="number" id="manualDist" step="1" min="0" value="5000">
+            <label for="suezHours">Ώρες διέλευσης Σουέζ</label>
+            <input type="number" id="suezHours" step="1" min="0" value="14">
+            <span class="unit-hint">συνολικός χρόνος στο κανάλι + ανηλικίας</span>
+          </div>
+          <div class="field">
+            <label for="panamaHours">Ώρες διέλευσης Παναμά</label>
+            <input type="number" id="panamaHours" step="1" min="0" value="12">
+            <span class="unit-hint">συνολικός χρόνος στο κανάλι + locks</span>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <h2><span class="step">3</span>Χρόνος &amp; Ζώνες Ώρας</h2>
+        <h2><span class="step">2</span>Χρόνος &amp; Ζώνες Ώρας</h2>
         <p class="hint">Ημερομηνίες/ώρες τοπικές σε κάθε λιμένα. Ο υπολογισμός της διάρκειας λαμβάνει υπόψη τις διαφορές ζωνών ώρας (π.χ. αναχώρηση UTC+3, άφιξη UTC−4).</p>
         <fieldset>
           <legend>Αναχώρηση</legend>
@@ -135,9 +126,9 @@
 
       <div class="card">
         <h2>Αποτελέσματα ταξιδίου</h2>
+        <div class="alert" id="resTransit" style="display:none" data-testid="text-res-transit"></div>
         <div class="result-grid">
-          <div class="result-box"><div class="r-label">Great circle</div><div class="r-value" id="resGc" data-testid="text-res-gc">—</div></div>
-          <div class="result-box"><div class="r-label">Απόσταση πλόου</div><div class="r-value" id="resRouteDist" data-testid="text-res-dist">—</div></div>
+          <div class="result-box"><div class="r-label">Απόσταση πλόου (όλα τα σκέλη)</div><div class="r-value" id="resRouteDist" data-testid="text-res-dist">—</div></div>
           <div class="result-box"><div class="r-label">Διάρκεια</div><div class="r-value" id="resDuration" data-testid="text-res-duration">—</div></div>
           <div class="result-box hero"><div class="r-label">Προτεινόμενη ταχύτητα</div><div class="r-value" id="resSpeed" data-testid="text-res-speed">—</div><div class="r-sub" id="resSpeedNote"></div></div>
           <div class="result-box"><div class="r-label">Αναχώρηση (UTC)</div><div class="r-value" style="font-size:var(--text-sm)" id="resDepUtc">—</div></div>

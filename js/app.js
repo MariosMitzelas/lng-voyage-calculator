@@ -57,8 +57,11 @@ function gcDistanceNm(lat1, lon1, lat2, lon2) {
 
 /* ---------- Παράμετροι εμπειρίας (defaults, όλα επεξεργάσιμα) ---------- */
 const DEFAULTS = {
-  // Ταξίδι
-  fromIdx: 0, toIdx: 44, distMode: "gc", routingFactor: 1.04, manualDist: 5000,
+  // Ταξίδι — σκέλη πλόου (πόρτες → πόρτες, με διώρυγες)
+  legs: [
+    { fromIdx: 0, toIdx: 44, distMode: "gc", manualDist: 5000 },
+  ],
+  routingFactor: 1.04, suezHours: 14, panamaHours: 12,
   depDate: "", depTime: "12:00", depTz: 3, arrDate: "", arrTime: "12:00", arrTz: 1,
   speedMode: "eta", serviceSpeed: 16.5,
   // Καταναλώσεις
@@ -78,6 +81,17 @@ const DEFAULTS = {
 };
 
 let S = JSON.parse(JSON.stringify(DEFAULTS));
+
+/* Μετατροπή παλαιότερων αποθηκευμένων μορφών στην τρέχουσα δομή */
+function migrateState(s) {
+  const d = Object.assign(JSON.parse(JSON.stringify(DEFAULTS)), s);
+  if (!Array.isArray(s.legs)) {
+    d.legs = [{ fromIdx: s.fromIdx ?? 0, toIdx: s.toIdx ?? 35, distMode: s.distMode ?? "gc", manualDist: s.manualDist ?? 5000 }];
+  }
+  if (!Number.isFinite(s.suezHours)) d.suezHours = 14;
+  if (!Number.isFinite(s.panamaHours)) d.panamaHours = 12;
+  return d;
+}
 
 /* ---------- Τοπική ώρα -> UTC epoch ---------- */
 function localToEpoch(dateStr, timeStr, tzHours) {
@@ -113,28 +127,47 @@ function interpolate(table, speed) {
 
 /* ---------- Κεντρικός υπολογισμός ---------- */
 function compute() {
-  const from = PORTS[S.fromIdx] || PORTS[0];
-  const to = PORTS[S.toIdx] || PORTS[1];
+  // Ανά σκέλος: λιμένες, απόσταση, διώρυγα (αν υπάρχει)
+  const legs = S.legs.map((leg) => {
+    const from = PORTS[leg.fromIdx] || PORTS[0];
+    const to = PORTS[leg.toIdx] || PORTS[1];
+    const canalRaw = legCanal(leg.fromIdx, leg.toIdx);
+    const canal = canalRaw
+      ? { ...canalRaw, hours: canalRaw.key === "suez" ? S.suezHours : S.panamaHours }
+      : null;
+    let dist, src;
+    if (leg.distMode === "manual") { dist = leg.manualDist; src = "manual"; }
+    else if (canal) { dist = canal.nm; src = "canal"; }
+    else { dist = gcDistanceNm(from.lat, from.lon, to.lat, to.lon) * S.routingFactor; src = "gc"; }
+    return { from, to, canal, dist, src, distMode: leg.distMode };
+  });
 
-  const gc = gcDistanceNm(from.lat, from.lon, to.lat, to.lon);
-  const distance = S.distMode === "manual" ? S.manualDist : gc * S.routingFactor;
+  const distance = legs.reduce((s, l) => s + l.dist, 0);
+  const transitHours = legs.reduce((s, l) => s + (l.canal ? l.canal.hours : 0), 0);
+  const canals = [...new Set(legs.filter((l) => l.canal).map((l) => l.canal.label))];
+  const from = legs.length ? legs[0].from : PORTS[0];
+  const to = legs.length ? legs[legs.length - 1].to : PORTS[1];
+  const gc = legs.reduce((s, l) => s + (l.src === "gc" ? l.dist / S.routingFactor : l.dist), 0);
 
   const depEpoch = localToEpoch(S.depDate, S.depTime, S.depTz);
   const arrEpoch = localToEpoch(S.arrDate, S.arrTime, S.arrTz);
 
-  let speed, etaArrEpoch, hours;
+  let speed, etaArrEpoch, hours, seaHours;
   if (S.speedMode === "eta") {
     hours = (arrEpoch - depEpoch) / 3600000;
-    speed = hours > 0 ? distance / hours : NaN;
+    seaHours = hours > 0 ? hours - transitHours : NaN;
+    speed = seaHours > 0 ? distance / seaHours : NaN;
     etaArrEpoch = arrEpoch;
   } else {
     speed = S.serviceSpeed;
-    etaArrEpoch = depEpoch + (distance / speed) * 3600 * 1000;
-    hours = Number.isFinite(etaArrEpoch) ? (etaArrEpoch - depEpoch) / 3600000 : NaN;
+    seaHours = distance / speed;
+    hours = transitHours + seaHours;
+    etaArrEpoch = depEpoch + hours * 3600 * 1000;
   }
 
   const cons = interpolate(S.consTable, speed);
   const days = hours / 24;
+  const seaDays = seaHours / 24;
 
   const lngM3Day = cons ? cons.lng : NaN;
   const foTDay = cons ? cons.fo : NaN;
@@ -170,7 +203,8 @@ function compute() {
   const maxIntakeT = maxIntakeM3 * S.density;
 
   return {
-    from, to, gc, distance, depEpoch, arrEpoch, hours, days, speed, etaArrEpoch,
+    legs, from, to, gc, distance, transitHours, canals,
+    depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
     cons, lngM3Day, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
     foeFactor, foeLNG, foeTotal, coolTotal, marginM3, requiredM3,
     arrRobM3, arrRobM3Margin, arrFo, arrMdo,
@@ -202,7 +236,8 @@ function portTz(idx) { return PORTS[idx] ? PORTS[idx].tz : 0; }
 /* ---------- Αποθήκευση / φόρτωση ---------- */
 function voyageName() {
   const r = compute();
-  return `${r.from.name} → ${r.to.name}`;
+  const via = r.canals.length ? ` via ${r.canals.join(" + ")}` : "";
+  return `${r.from.name} → ${r.to.name}${via}`;
 }
 
 function saveVoyage() {
@@ -231,7 +266,7 @@ function openLoadModal() {
       .join("");
     box.querySelectorAll("[data-load]").forEach((b) =>
       b.addEventListener("click", () => {
-        S = JSON.parse(JSON.stringify(list[+b.dataset.load].data));
+        S = migrateState(list[+b.dataset.load].data);
         $("loadModal").classList.remove("open");
         syncInputs(); render();
         toast("Το ταξίδι φορτώθηκε");
@@ -276,7 +311,7 @@ function importJson(file) {
     try {
       const j = JSON.parse(fr.result);
       if (!j.state) throw new Error();
-      S = Object.assign(JSON.parse(JSON.stringify(DEFAULTS)), j.state);
+      S = migrateState(j.state);
       syncInputs(); render();
       toast("Επιτυχής εισαγωγή αρχείου");
     } catch (e) { toast("Μη έγκυρο αρχείο ταξιδιού"); }
@@ -302,11 +337,14 @@ th{background:#eee}
 .sig{margin-top:40px;display:flex;justify-content:space-between;font-size:12px}
 .sig div{border-top:1px solid #000;width:220px;padding-top:4px;text-align:center}
 </style></head><body>
-<h1>Αναφορά Πλόου LNG — ${r.from.name} → ${r.to.name}</h1>
+<h1>Αναφορά Πλόου LNG — ${r.from.name} → ${r.to.name}${r.canals.length ? " via " + r.canals.join(" + ") : ""}</h1>
 <p>Συντάχθηκε: ${new Date().toLocaleString("el-GR")}</p>
+<h2>Σκέλη πλόου</h2><table>
+<tr><th>Σκέλος</th><th>Απόσταση</th></tr>
+${r.legs.map((l, i) => `<tr><td>${i + 1}. ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " + " + fmt(l.canal.hours, 0) + " h transit" : ""}</td></tr>`).join("")}
+<tr><td><strong>Σύνολο</strong></td><td class="num"><strong>${fmt(r.distance, 0)} nm</strong></td></tr>
+</table>
 <h2>Ταξίδι</h2><table>
-${row("Απόσταση (great circle)", fmt(r.gc, 0) + " nm")}
-${row("Απόσταση πλόου", fmt(r.distance, 0) + " nm")}
 ${row("Αναχώρηση", dt(r.depEpoch, S.depTz))}
 ${row("Άφιξη", dt(r.etaArrEpoch, S.arrTz))}
 ${row("Διάρκεια", fmt(r.days, 2) + " ημέρες (" + fmt(r.hours, 1) + " ώρες)")}
@@ -421,15 +459,12 @@ function renderConsTable() {
 
 /* ---------- Συγχρονισμός inputs από state ---------- */
 function syncInputs() {
-  $("fromPort").innerHTML = portOptions(S.fromIdx);
-  $("toPort").innerHTML = portOptions(S.toIdx);
+  renderLegs();
   $("depTz").innerHTML = tzOptions(S.depTz);
   $("arrTz").innerHTML = tzOptions(S.arrTz);
-  $("distModeGc").checked = S.distMode === "gc";
-  $("distModeManual").checked = S.distMode === "manual";
   $("routingFactor").value = S.routingFactor;
-  $("manualDist").disabled = S.distMode !== "manual";
-  $("manualDist").value = S.manualDist;
+  $("suezHours").value = S.suezHours;
+  $("panamaHours").value = S.panamaHours;
   $("depDate").value = S.depDate;
   $("depTime").value = S.depTime;
   $("arrDate").value = S.arrDate;
@@ -452,6 +487,72 @@ function syncInputs() {
   renderConsTable();
 }
 
+/* ---------- Σκέλη πλόου (UI) ---------- */
+function renderLegs() {
+  const box = $("legsList");
+  box.innerHTML = S.legs
+    .map((leg, i) => {
+      const last = i === S.legs.length - 1;
+      return `<div class="leg-row" data-leg="${i}">
+        <div class="field">
+          <label>Από</label>
+          <select data-legi="${i}" data-f="fromIdx">${portOptions(leg.fromIdx)}</select>
+        </div>
+        <div class="field">
+          <label>${last ? "Προς (τελικός)" : "Προς"}</label>
+          <select data-legi="${i}" data-f="toIdx">${portOptions(leg.toIdx)}</select>
+        </div>
+        <div class="field">
+          <label>Απόσταση</label>
+          <select data-legi="${i}" data-f="distMode">
+            <option value="gc" ${leg.distMode === "gc" ? "selected" : ""}>Αυτόματα (GC × συντ.)</option>
+            <option value="manual" ${leg.distMode === "manual" ? "selected" : ""}>Χειροκίνητη (passage plan)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>nm</label>
+          <input type="number" data-legi="${i}" data-f="manualDist" step="1" min="0"
+            value="${leg.manualDist}" ${leg.distMode === "gc" ? "disabled" : ""}>
+        </div>
+        <div class="leg-meta">
+          <span class="leg-dist" id="legDist${i}">—</span>
+        </div>
+        <button class="btn small danger leg-del" data-del-leg="${i}" aria-label="Διαγραφή σκέλους ${i + 1}">✕</button>
+      </div>`;
+    })
+    .join("");
+
+  box.querySelectorAll("select[data-legi], input[data-legi]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const i = +el.dataset.legi;
+      const f = el.dataset.f;
+      if (f === "fromIdx" || f === "toIdx") {
+        S.legs[i][f] = +el.value;
+        // Αλυσίδωση σκέλων: το επόμενο ξεκινά από τον προορισμό του προηγούμενου
+        if (f === "toIdx" && S.legs[i + 1]) S.legs[i + 1].fromIdx = S.legs[i].toIdx;
+        if (f === "fromIdx" && S.legs[i - 1]) S.legs[i - 1].toIdx = S.legs[i].fromIdx;
+      }
+      else if (f === "distMode") S.legs[i].distMode = el.value;
+      else S.legs[i].manualDist = num(el.value) || 0;
+      // Η ζώνη ώρας αναχώρησης/άφιξης ακολουθεί τους ακραίους λιμένες
+      S.depTz = portTz(S.legs[0].fromIdx);
+      S.arrTz = portTz(S.legs[S.legs.length - 1].toIdx);
+      $("depTz").innerHTML = tzOptions(S.depTz);
+      $("arrTz").innerHTML = tzOptions(S.arrTz);
+      renderLegs();
+      render();
+    })
+  );
+  box.querySelectorAll("[data-del-leg]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (S.legs.length > 1) {
+        S.legs.splice(+b.dataset.delLeg, 1);
+        renderLegs(); render();
+      }
+    })
+  );
+}
+
 /* ---------- Κύρια απεικόνιση αποτελεσμάτων ---------- */
 function render() {
   const r = compute();
@@ -466,8 +567,17 @@ function render() {
   $("sumMaxIntake").classList.toggle("bad", r.maxIntakeM3 < 0);
   $("sumSpeed").classList.toggle("bad", r.speed < 8 || r.speed > 21);
 
-  // Ταξίδι
-  $("resGc").textContent = fmt(r.gc, 0) + " nm";
+  // Ταξίδι — σκέλη
+  r.legs.forEach((l, i) => {
+    const el = $("legDist" + i);
+    if (el) {
+      const canalTag = l.canal ? ` — ${l.canal.label} (transit ${fmt(l.canal.hours, 0)} h)` : "";
+      const srcTag = l.src === "manual" ? "χειροκίνητη" : l.src === "canal" ? "canal" : "GC";
+      el.innerHTML = `${fmt(l.dist, 0)} nm <span class="src-tag">(${srcTag})</span>${canalTag}`;
+    }
+  });
+
+  // Ταξίδι — σύνολα
   $("resRouteDist").textContent = fmt(r.distance, 0) + " nm";
   $("resDepUtc").textContent = Number.isFinite(r.depEpoch)
     ? new Date(r.depEpoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
@@ -475,8 +585,12 @@ function render() {
     ? new Date(r.etaArrEpoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
   $("resDuration").textContent = bad(r.hours) ? "—" : `${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)`;
   $("resSpeed").textContent = bad(r.speed) ? "—" : fmt(r.speed, 2) + " knots";
+  const transitNote = r.transitHours > 0
+    ? `Περιλαμβάνονται ${fmt(r.transitHours, 0)} ώρες διέλευσης διώρυγας — πλεύσιμοι χρόνος ${fmt(r.seaHours, 1)} h (${fmt(r.seaDays, 2)} ημ)` : "";
+  $("resTransit").textContent = transitNote;
+  $("resTransit").style.display = r.transitHours > 0 ? "block" : "none";
   $("resSpeedNote").textContent = r.speedMode === "eta"
-    ? "Υπολογισμένη για άφιξη στην καθορισμένη ημερομηνία/ώρα"
+    ? "Υπολογισμένη για άφιξη στην καθορισμένη ημερομηνία/ώρα" + (r.transitHours > 0 ? ", με αφαίρεση ωρών διώρυγας" : "")
     : "Καθορισμένη ταχύτητα λειτουργίας — η άφιξη υπολογίζεται";
 
   // Καταναλώσεις
@@ -522,11 +636,12 @@ function render() {
     ? new Date(epoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
   $("fullSummary").innerHTML = `
     <thead><tr><th colspan="2">Ταξίδι</th></tr></thead><tbody>
-    <tr><td>Πλοήγηση</td><td class="num">${r.from.name} → ${r.to.name}</td></tr>
-    <tr><td>Απόσταση great-circle / πλόου</td><td class="num">${fmt(r.gc, 0)} / ${fmt(r.distance, 0)} nm</td></tr>
+    <tr><td>Πλοήγηση</td><td class="num">${r.from.name} → ${r.to.name}${r.canals.length ? " via " + r.canals.join(" + ") : ""}</td></tr>
+    ${r.legs.map((l, i) => `<tr><td>Σκέλος ${i + 1}: ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " + " + fmt(l.canal.hours, 0) + " h transit" : ""}</td></tr>`).join("")}
+    <tr><td>Συνολική απόσταση πλόου</td><td class="num">${fmt(r.distance, 0)} nm</td></tr>
     <tr><td>Αναχώρηση (τοπική / UTC)</td><td class="num">${S.depDate} ${S.depTime} (UTC${S.depTz >= 0 ? "+" : ""}${S.depTz}) — ${dt(r.depEpoch)}</td></tr>
     <tr><td>Άφιξη (τοπική / UTC)</td><td class="num">${S.arrDate} ${S.arrTime} (UTC${S.arrTz >= 0 ? "+" : ""}${S.arrTz}) — ${dt(r.etaArrEpoch)}</td></tr>
-    <tr><td>Διάρκεια</td><td class="num">${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)</td></tr>
+    <tr><td>Διάρκεια${r.transitHours > 0 ? " (πλεύσιμος χρόνος " + fmt(r.seaHours, 1) + " h)" : ""}</td><td class="num">${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)</td></tr>
     <tr><td>Ταχύτητα</td><td class="num">${fmt(r.speed, 2)} kn</td></tr>
     </tbody>
     <thead><tr><th colspan="2">Καταναλώσεις ταξιδίου</th></tr></thead><tbody>
@@ -600,30 +715,25 @@ function init() {
   if (!S.depDate) S.depDate = iso(d0);
   if (!S.arrDate) S.arrDate = iso(d1);
 
+  // Μετατροπή παλαιών αποθηκευμένων ταξιδιών (μονά σκέλος) στη νέα δομή
+  S = migrateState(S);
+
   syncInputs();
   setupTabs();
   render();
 
-  // — Ταξίδι —
-  $("fromPort").addEventListener("change", (e) => {
-    S.fromIdx = +e.target.value; S.depTz = portTz(S.fromIdx);
-    $("depTz").innerHTML = tzOptions(S.depTz); render();
+  // — Ταξίδι: σκέλη —
+  $("addLeg").addEventListener("click", () => {
+    const last = S.legs[S.legs.length - 1];
+    S.legs.push({ fromIdx: last.toIdx, toIdx: 35, distMode: "gc", manualDist: 1000 });
+    renderLegs(); render();
   });
-  $("toPort").addEventListener("change", (e) => {
-    S.toIdx = +e.target.value; S.arrTz = portTz(S.toIdx);
-    $("arrTz").innerHTML = tzOptions(S.arrTz); render();
-  });
-  document.querySelectorAll('input[name="distMode"]').forEach((r) =>
-    r.addEventListener("change", () => {
-      S.distMode = $("distModeManual").checked ? "manual" : "gc";
-      $("manualDist").disabled = S.distMode !== "manual";
-      render();
-    })
-  );
+
   const bind = (id, key, fn = num) =>
     $(id).addEventListener("change", (e) => { S[key] = fn(e.target.value); render(); });
   bind("routingFactor", "routingFactor");
-  bind("manualDist", "manualDist");
+  bind("suezHours", "suezHours");
+  bind("panamaHours", "panamaHours");
   bind("depDate", "depDate", (v) => v);
   bind("depTime", "depTime", (v) => v);
   bind("arrDate", "arrDate", (v) => v);

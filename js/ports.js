@@ -111,6 +111,28 @@ const PORTS = [
   { name: "Fujairah",                country: "ΗΑΕ",          lat: 25.10,  lon: 56.35,  tz: 4,     type: "bunker" },
   { name: "Las Palmas",              country: "Ισπανία",      lat: 28.10,  lon: -15.40, tz: 0,     type: "bunker" },
   { name: "Singapore",               country: "Σιγκαπούρη",   lat: 1.26,   lon: 103.80, tz: 8,     type: "bunker" },
+
+  // — Λιμένες διωρύγων —
+  { name: "Port Said",            country: "Σουέζ", lat: 31.25, lon: 32.30, tz: 2,   type: "canal" },
+  { name: "Suez",                 country: "Σουέζ", lat: 29.97, lon: 32.55, tz: 2,   type: "canal" },
+  { name: "Cristóbal (Atlantic)",    country: "Παναμάς",      lat: 9.36,   lon: -79.90, tz: -5,    type: "canal" },
+  { name: "Balboa (Pacific)",        country: "Παναμάς",      lat: 8.94,   lon: -79.56, tz: -5,    type: "canal" },
 ];
+
+/* Διώρυγες: ζεύγη λιμένων, απόσταση διέλευσης (nm) και ώρες transit */
+const CANALS = [
+  { key: "suez",   a: "Port Said", b: "Suez",            nm: 90, label: "Διώρυγα Σουέζ" },
+  { key: "panama", a: "Cristóbal (Atlantic)", b: "Balboa (Pacific)", nm: 44, label: "Διώρυγα Παναμά" },
+];
+
+/* Επιστρέφει τα δεδομένα διώρυγας αν το σκέλος ενώνει το αντίστοιχο ζεύγος λιμένων */
+function legCanal(fromIdx, toIdx) {
+  for (const c of CANALS) {
+    const ai = PORTS.findIndex((p) => p.name === c.a);
+    const bi = PORTS.findIndex((p) => p.name === c.b);
+    if ((fromIdx === ai && toIdx === bi) || (fromIdx === bi && toIdx === ai)) return { ...c };
+  }
+  return null;
+}
 
 if (typeof module !== "undefined") module.exports = { PORTS };
