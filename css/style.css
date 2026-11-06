@@ -243,6 +243,7 @@ fieldset legend {
   border-bottom: 1px solid var(--border);
 }
 .leg-row:last-child { border-bottom: none; }
+.leg-row .field input, .leg-row .field select { height: 42px; }
 .leg-meta { min-width: 0; padding-bottom: var(--space-2); }
 .leg-dist {
   font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700;

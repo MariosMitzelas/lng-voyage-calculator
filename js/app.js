@@ -505,8 +505,8 @@ function renderLegs() {
         <div class="field">
           <label>Απόσταση</label>
           <select data-legi="${i}" data-f="distMode">
-            <option value="gc" ${leg.distMode === "gc" ? "selected" : ""}>Αυτόματα (GC × συντ.)</option>
-            <option value="manual" ${leg.distMode === "manual" ? "selected" : ""}>Χειροκίνητη (passage plan)</option>
+            <option value="gc" ${leg.distMode === "gc" ? "selected" : ""}>Αυτόματα (GC)</option>
+            <option value="manual" ${leg.distMode === "manual" ? "selected" : ""}>Χειροκίνητη</option>
           </select>
         </div>
         <div class="field">
