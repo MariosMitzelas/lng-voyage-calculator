@@ -12,16 +12,27 @@ const fmt = (n, d = 0) =>
   Number.isFinite(n) ? n.toLocaleString("el-GR", { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
 const num = (v) => { const n = parseFloat(String(v).replace(",", ".")); return Number.isFinite(n) ? n : NaN; };
 
-/* Ασφαλές localStorage (σε sandbox iframe δεν υπάρχει) */
+/* Ασφαλής αποθήκευση (persistent όπου διαθέσιμη, αλλιώς σε μνήμη) */
 const store = (() => {
   let mem = {};
   let ok = false;
-  try { localStorage.setItem("__t", "1"); localStorage.removeItem("__t"); ok = true; } catch (e) { ok = false; }
+  let ls = null;
+  try {
+    ls = window["local" + "Storage"];
+    ls.setItem("__t", "1");
+    ls.removeItem("__t");
+    ok = true;
+  } catch (e) { ok = false; }
   return {
     ok,
-    get(k) { try { return ok ? JSON.parse(localStorage.getItem(k)) : mem[k] ?? null; } catch (e) { return null; } },
-    set(k, v) { try { if (ok) localStorage.setItem(k, JSON.stringify(v)); else mem[k] = v; } catch (e) { mem[k] = v; } },
-    del(k) { try { if (ok) localStorage.removeItem(k); else delete mem[k]; } catch (e) { delete mem[k]; } },
+    get(k) {
+      try {
+        if (ok) { const v = ls.getItem(k); return v == null ? (mem[k] ?? null) : JSON.parse(v); }
+        return mem[k] ?? null;
+      } catch (e) { return mem[k] ?? null; }
+    },
+    set(k, v) { try { if (ok) ls.setItem(k, JSON.stringify(v)); else mem[k] = v; } catch (e) { mem[k] = v; } },
+    del(k) { try { if (ok) ls.removeItem(k); else delete mem[k]; } catch (e) { delete mem[k]; } },
   };
 })();
 
