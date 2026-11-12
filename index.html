@@ -36,7 +36,7 @@
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-lng" data-testid="tab-lng"><span class="num">3</span>LNG &amp; Bunkers</button>
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-results" data-testid="tab-results"><span class="num">4</span>Σύνοψη</button>
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-ops">Voyage Operations</button>
-      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-discharge">Εκφόρτωση</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-discharge">Cargo Transfer</button>
     </nav>
   </header>
 
@@ -444,6 +444,30 @@
       </div>
     </section>
     <section class="panel" id="panel-discharge" role="tabpanel" aria-label="Πρόγραμμα εκφόρτωσης">
+      <div class="card" id="transferPlanner">
+        <h2>Cargo Transfer · Ramp-up &amp; Ramp-down</h2>
+        <p class="hint">Καταχώρισε τις συμφωνημένες παροχές και τις εγκεκριμένες διαδρομές. Ο υπολογισμός ελέγχει όγκους και δηλωμένα όρια. Οι χρόνοι ESD, οι αλληλουχίες χειρισμού βαλβίδων και οι πιέσεις απαιτούν τις εγκεκριμένες διαδικασίες πλοίου και τερματικού.</p>
+        <div class="grid-form ops-fields">
+          <label class="field">Εργασία<select id="transferMode"><option value="loading">Φόρτωση</option><option value="unloading">Εκφόρτωση</option></select></label>
+          <label class="field">Έναρξη (UTC)<input id="transferStart" type="datetime-local" data-transfer-field="start"></label>
+          <label class="field">Μέγιστο terminal rate (m³/h)<input type="number" min="0" step="any" data-transfer-field="terminal"></label>
+          <label class="field">Κοινό όριο manifold / arms (m³/h)<input type="number" min="0" step="any" data-transfer-field="manifold"></label>
+          <label class="field">Άλλο κοινό όριο, π.χ. vapour handling σε ισοδύναμη παροχή LNG (m³/h)<input type="number" min="0" step="any" data-transfer-field="vapour"></label>
+          <label class="field">Μέγιστη αύξηση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampUp"></label>
+          <label class="field">Μέγιστη μείωση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampDown"></label>
+        </div>
+        <p class="hint">Άφησε κενό ένα προαιρετικό όριο που δεν έχεις. Κάθε διαδρομή συνδέει μία δεξαμενή με κοινά στοιχεία της γραμμής. Χρησιμοποίησε απλά αναγνωριστικά, π.χ. T1, P1, V1 και R1.</p>
+        <div id="transferInputs"></div>
+        <div class="ops-actions"><button class="btn" type="button" id="transferTemplate">Πρότυπο 3 σταδίων</button><button class="btn primary" type="button" id="transferRun">Υπολογισμός πλάνου</button></div>
+        <div id="transferStatus" aria-live="polite"></div>
+        <div id="transferResults" hidden>
+          <div id="transferBars"></div>
+          <div class="table-wrap"><table class="data-table" id="transferStageResults"></table></div>
+          <div class="table-wrap"><table class="data-table" id="transferTankResults"></table></div>
+        </div>
+      </div>
+      <details class="card" id="quickDischarge">
+        <summary>Γρήγορη εκτίμηση εκφόρτωσης &amp; heel</summary>
       <div class="card">
         <h2>Πρόγραμμα εκφόρτωσης &amp; heel</h2>
         <p class="hint">Μπορείς να βάλεις ποσότητα εκφόρτωσης ή στόχο heel. Οι ώρες ramp-up/down μοντελοποιούνται γραμμικά μεταξύ μηδενικής παροχής και της μέγιστης παροχής τερματικού. Η ποσότητα stripping περιλαμβάνεται στην ποσότητα προς εκφόρτωση.</p>
@@ -466,6 +490,7 @@
         <div class="table-wrap"><table class="data-table" id="discTanks"></table></div>
         <div class="ops-actions"><button type="button" class="btn " id="discAddTank">Προσθήκη δεξαμενής</button></div>
       </div>
+      </details>
     </section>
   </main>
 
@@ -487,5 +512,6 @@
   <script src="js/ports.js"></script>
   <script src="js/app.js"></script>
   <script src="js/operations.js"></script>
+  <script src="js/transfer.js"></script>
 </body>
 </html>
