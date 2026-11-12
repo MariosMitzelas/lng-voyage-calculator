@@ -57,8 +57,9 @@ function forecastPhases(legs, rates, state, hours) {
   let foT = 0;
   let mdoT = 0;
   let lngM3 = 0;
+  let lngT = 0;
   let cargoUsed = 0;
-  if (!Number.isFinite(hours)) return { rows, lngM3: NaN, cargoUsed: NaN, foT: NaN, mdoT: NaN };
+  if (!Number.isFinite(hours)) return { rows, lngM3: NaN, lngT: NaN, cargoUsed: NaN, foT: NaN, mdoT: NaN };
 
   legs.forEach((leg, i) => {
     const phase = leg.canal ? "canal" : state.legs[i].phase === "ballast" ? "ballast" : "laden";
@@ -84,14 +85,18 @@ function forecastPhases(legs, rates, state, hours) {
       rob -= loss;
       lngM3 += demand;
       cargoUsed += loss;
-      foT += rate("fo") * days;
-      mdoT += rate("mdo") * days;
-      rows.push({ leg: i + 1, kind, time, demand, natural, forced, recovered, loss, rob,
+      const mass = demand * (sailing.density ?? state.density);
+      const fuelOil = rate("fo") * days;
+      const diesel = rate("mdo") * days;
+      lngT += mass;
+      foT += fuelOil;
+      mdoT += diesel;
+      rows.push({ leg: i + 1, kind, time, demand, lngT: mass, foT: fuelOil, mdoT: diesel, natural, forced, recovered, loss, rob,
         bogEnabled: Number.isFinite(bor),
         exceedsForcing: Number.isFinite(forcingLimit) && forced > forcingLimit * days + 1e-7 });
     }
   });
-  return { rows, lngM3, cargoUsed, foT, mdoT };
+  return { rows, lngM3, lngT, cargoUsed, foT, mdoT };
 }
 
 function parseCurve(text) {
@@ -281,8 +286,9 @@ function earliestArrival(state, result, baseline, offset, maxSpeed) {
     const input = state.legs[i];
     const fixedTransit = opsNumber(input.transitOverride);
     const originalTransit = baseline.legs[offset + i]?.canal?.hours;
+    const requestedSpeed = opsNumber(input.speedOverride);
     const hours = leg.canal ? Number.isFinite(fixedTransit) ? fixedTransit : originalTransit ?? leg.canal.hours
-      : leg.dist / maxSpeed;
+      : leg.dist / Math.min(maxSpeed, requestedSpeed > 0 ? requestedSpeed : maxSpeed);
     if (!(hours >= 0)) return NaN;
     epoch += hours * HOUR;
     if (i === result.legs.length - 1) continue;
@@ -311,6 +317,8 @@ function compareVoyages(base, report, slot, delays, settings) {
           Math.max(Number.isFinite(settings.open) ? settings.open : -Infinity, existing))
         : Number.isFinite(settings.close) ? settings.close : settings.open;
       [state.arrDate, state.arrTime] = opsIso(target, state.arrTz).split("T");
+      const final = state.legs.at(-1);
+      if (final?.stopArrival) final.stopArrival = opsIso(target, final.stopTz ?? state.arrTz);
       state.speedMode = "eta";
     }
     const result = withVoyage(state);
@@ -449,7 +457,10 @@ function importProfile(file) {
     const { kind, name, data } = JSON.parse(text);
     const validTable = (table) => Array.isArray(table) && table.every((row) => row
       && Number.isFinite(row.speed) && row.speed > 0
-      && ["lng", "fo", "mdo"].every((key) => Number.isFinite(row[key]) && row[key] >= 0));
+      && ["lng", "fo", "mdo"].every((key) => Number.isFinite(row[key]) && row[key] >= 0)
+      && (row.lngInput == null || Number.isFinite(row.lngInput) && row.lngInput >= 0)
+      && (row.lngUnit == null || ["m3", "t", "foe"].includes(row.lngUnit))
+      && (row.density == null || Number.isFinite(row.density) && row.density > 0));
     if (kind !== "voyagecalc-vessel-profile" || typeof name !== "string" || !name.trim() || !data
         || !validTable(data.consTable)
         || ["laden", "ballast"].some((phase) => data.phaseCurves?.[phase] && !validTable(data.phaseCurves[phase]))) {

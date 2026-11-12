@@ -104,28 +104,34 @@ function localToEpoch(dateStr, timeStr, tzHours) {
   return Date.UTC(y, m - 1, d, hh, mm) - tzHours * 3600 * 1000;
 }
 
-/* ---------- Γραμμική παρεμβολή πίνακα καταναλώσεων ---------- */
-function interpolate(table, speed) {
-  const t = [...table].sort((a, b) => a.speed - b.speed);
+/* ---------- Πυκνότητα, μετατροπές και καμπύλη καταναλώσεων ---------- */
+const positiveNumber = (value, fallback) => Number.isFinite(value) && value > 0 ? value : fallback;
+
+function lngConversions(row, state = S) {
+  const density = positiveNumber(row.density, positiveNumber(state.density, DEFAULTS.density));
+  const factor = state.cvLNG / state.cvFOE;
+  const entered = row.lngInput ?? row.lng;
+  const tonnes = row.lngUnit === "t" ? entered : row.lngUnit === "foe" ? entered / factor : entered * density;
+  const volume = row.lngUnit === "t" || row.lngUnit === "foe" ? tonnes / density : entered;
+  return { density, volume, tonnes, foe: tonnes * factor };
+}
+
+function interpolate(table, speed, state = S) {
+  const t = table.filter(row => row.speed > 0).map(row => {
+    const { density, volume, tonnes } = lngConversions(row, state);
+    return { speed: row.speed, lng: volume, tonnes, density, fo: row.fo, mdo: row.mdo };
+  }).sort((a, b) => a.speed - b.speed);
   if (!t.length) return null;
-  if (t.length === 1) return { ...t[0], extrapolated: speed !== t[0].speed };
   if (speed <= t[0].speed) return { ...t[0], extrapolated: speed < t[0].speed };
-  if (speed >= t[t.length - 1].speed) return { ...t[t.length - 1], extrapolated: speed > t[t.length - 1].speed };
-  for (let i = 0; i < t.length - 1; i++) {
-    const a = t[i], b = t[i + 1];
-    if (speed >= a.speed && speed <= b.speed) {
-      const f = (speed - a.speed) / (b.speed - a.speed);
-      const mix = (x, y) => x + f * (y - x);
-      return {
-        speed,
-        lng: mix(a.lng, b.lng),
-        fo: mix(a.fo, b.fo),
-        mdo: mix(a.mdo, b.mdo),
-        extrapolated: false,
-      };
-    }
-  }
-  return null;
+  if (speed >= t.at(-1).speed) return { ...t.at(-1), extrapolated: speed > t.at(-1).speed };
+  const i = t.findIndex(row => row.speed >= speed);
+  const [a, b] = [t[i - 1], t[i]];
+  const fraction = (speed - a.speed) / (b.speed - a.speed);
+  const mix = (key) => a[key] + fraction * (b[key] - a[key]);
+  const lng = mix("lng");
+  const tonnes = mix("tonnes");
+  return { speed, lng, tonnes, density: lng > 0 ? tonnes / lng : mix("density"), fo: mix("fo"), mdo: mix("mdo"),
+    extrapolated: false };
 }
 
 const HOUR = 3600000;
@@ -143,62 +149,66 @@ function planLegs(legs, start, finalTarget) {
   const errors = [];
   let blockStart = 0;
   let departure = start;
+  const hourTolerance = 30 / 3600; // Timestamp inputs have minute precision.
 
-  for (let i = 0; i < legs.length; i++) {
-    const leg = legs[i];
+  for (const [i, leg] of legs.entries()) {
     const last = i === legs.length - 1;
     const input = S.legs[i];
-    const offset = Number.isFinite(input.stopTz) ? input.stopTz : leg.to.tz;
-    const arrive = last ? finalTarget : stopEpoch(input.stopArrival, offset);
-    const leave = last ? NaN : stopEpoch(input.stopDeparture, offset);
+    const offset = input.stopTz ?? (last ? S.arrTz : leg.to.tz);
+    const localArrival = stopEpoch(input.stopArrival, offset);
+    const arrive = Number.isFinite(localArrival) ? localArrival : last ? finalTarget : NaN;
+    const leave = stopEpoch(input.stopDeparture, offset);
     const hasArrival = Number.isFinite(arrive);
-    const target = hasArrival ? arrive : leave;
-    const fixedSpeedDeparture = !hasArrival && Number.isFinite(leave) && S.speedMode === "speed";
+    const target = hasArrival ? arrive : last ? NaN : leave;
+    const anchored = Number.isFinite(target);
+    if (!last && !anchored) continue;
 
-    // Explicit entry and exit times can define the actual transit duration.
+    const block = legs.slice(blockStart, i + 1);
+    const fixedSpeed = (entry, index) => entry.canal ? NaN : optionalNumber(S.legs[blockStart + index].speedOverride);
+    const fixed = block.map(fixedSpeed);
     const preceding = S.legs[i - 1];
-    const fixedEntry = i === 0 || (preceding && (preceding.stopDeparture || preceding.stopArrival));
-    if (leg.canal && (!last || i > 0) && blockStart === i && fixedEntry && hasArrival
-        && Number.isFinite(departure) && !Number.isFinite(optionalNumber(input.transitOverride))) {
+    const fixedEntry = i === 0 || Boolean(preceding?.stopDeparture || preceding?.stopArrival);
+    if (leg.canal && block.length === 1 && fixedEntry && hasArrival && Number.isFinite(departure)
+        && !Number.isFinite(optionalNumber(input.transitOverride)) && (!last || i > 0 || input.stopArrival)) {
       leg.canal.hours = (arrive - departure) / HOUR;
     }
+    const invalidSpeed = block.some((entry, j) => !entry.canal && ![undefined, null, ""].includes(S.legs[blockStart + j].speedOverride)
+      && !(fixed[j] > 0));
+    const fixedHours = block.reduce((sum, entry, j) => sum + (entry.canal?.hours ?? (fixed[j] > 0 ? entry.dist / fixed[j] : 0)), 0);
+    const flexibleDistance = block.reduce((sum, entry, j) => sum + (!entry.canal && !(fixed[j] > 0) ? entry.dist : 0), 0);
+    const available = (target - departure) / HOUR - fixedHours;
+    const fallback = S.speedMode === "speed" ? S.serviceSpeed : NaN;
+    const useFallback = !anchored || (!hasArrival && fallback > 0);
+    const inferred = useFallback ? fallback : flexibleDistance > 0 ? flexibleDistance / available : NaN;
+    const flexibleHours = flexibleDistance > 0 ? flexibleDistance / inferred : 0;
+    const hasFixedSea = fixed.some(value => value > 0);
+    const strictArrival = hasArrival && (hasFixedSea || flexibleDistance > 0 ||
+      (leg.canal && fixedEntry && (!last || i > 0 || input.stopArrival)) || Boolean(input.stopArrival));
+    const mismatch = anchored && Number.isFinite(departure) &&
+      (available < flexibleHours - hourTolerance || (strictArrival && Math.abs(available - flexibleHours) > hourTolerance));
+    const invalid = invalidSpeed || mismatch || block.some(entry => entry.canal && !(entry.canal.hours >= 0)) ||
+      (flexibleDistance > 0 && Number.isFinite(departure) && (anchored || S.speedMode === "speed") && !(inferred > 0));
+    if (invalid) errors.push(`Σκέλος ${i + 1}: ασύμβατη ταχύτητα, άφιξη, αναχώρηση ή διάρκεια διέλευσης.`);
 
-    if (!last && !Number.isFinite(target)) continue;
-    const block = legs.slice(blockStart, i + 1);
-    const seaDistance = block.reduce((sum, l) => sum + (l.canal ? 0 : l.dist), 0);
-    const canalHours = block.reduce((sum, l) => sum + (l.canal?.hours ?? 0), 0);
-    const anchored = Number.isFinite(target);
-    const availableHours = (target - departure) / HOUR - canalHours;
-    const speed = fixedSpeedDeparture || (!anchored && S.speedMode === "speed") ? S.serviceSpeed
-      : seaDistance > 0 && anchored ? seaDistance / availableHours : NaN;
-    const fixedTransitConflict = seaDistance === 0 && leg.canal && fixedEntry && hasArrival
-      && (!last || i > 0) && Number.isFinite(departure) && Math.abs(availableHours) > 1e-7;
-    const departureConflict = fixedSpeedDeparture && Number.isFinite(departure)
-      && seaDistance > 0 && (!(speed > 0) || seaDistance / speed > availableHours + 1e-7);
-    const badDuration = fixedTransitConflict || departureConflict
-      || block.some((l) => l.canal && !(l.canal.hours >= 0))
-      || (anchored && Number.isFinite(departure)
-        && (seaDistance > 0 ? !(availableHours > 0) : availableHours < -1e-7));
-    if (badDuration) errors.push(`Μη εφικτό χρονοδιάγραμμα έως το σκέλος ${i + 1}. Ελέγξτε τις ώρες και τη διάρκεια διέλευσης.`);
-
-    for (const l of block) {
-      l.departure = departure;
-      l.speed = l.canal ? NaN : speed;
-      l.hours = badDuration ? NaN : l.canal ? l.canal.hours
-        : l.dist === 0 ? 0 : speed > 0 && (anchored || S.speedMode === "speed") ? l.dist / speed : NaN;
-      l.arrival = departure + l.hours * HOUR;
-      l.waitHours = 0;
-      departure = l.arrival;
+    for (const [j, entry] of block.entries()) {
+      entry.departure = departure;
+      entry.speed = entry.canal ? NaN : fixed[j] > 0 ? fixed[j] : inferred;
+      entry.hours = invalid ? NaN : entry.canal ? entry.canal.hours : entry.dist === 0 ? 0
+        : entry.speed > 0 ? entry.dist / entry.speed : NaN;
+      entry.arrival = departure + entry.hours * HOUR;
+      entry.waitHours = 0;
+      entry.nextDeparture = departure = entry.arrival;
     }
-    // Any remaining time in a canal-only block is time at the exit.
-    if (anchored && !badDuration && Number.isFinite(departure)) {
-      leg.waitHours = Math.max(0, ((Number.isFinite(leave) ? leave : target) - departure) / HOUR);
-      if (Number.isFinite(leave) && leave < target) {
-        errors.push(`Σκέλος ${i + 1}: η αναχώρηση προηγείται της άφιξης.`);
-      }
-      departure += leg.waitHours * HOUR;
+    if (Number.isFinite(leave) && Number.isFinite(leg.arrival) && leave < Math.max(leg.arrival, hasArrival ? arrive : -Infinity) - hourTolerance * HOUR) {
+      errors.push(`Σκέλος ${i + 1}: η αναχώρηση προηγείται της άφιξης.`);
     }
-    leg.nextDeparture = departure;
+    if (Number.isFinite(departure)) {
+      const end = Number.isFinite(leave) ? leave : anchored && !strictArrival ? target : departure;
+      leg.portHours = Math.max(0, (end - departure) / HOUR);
+      leg.waitHours = last && Number.isFinite(leave) ? 0 : leg.portHours;
+      leg.nextDeparture = departure + leg.portHours * HOUR;
+      departure = leg.nextDeparture;
+    }
     blockStart = i + 1;
   }
   return errors;
@@ -207,7 +217,7 @@ function planLegs(legs, start, finalTarget) {
 function legScheduleText(leg) {
   return `${utcText(leg.departure)} → ${utcText(leg.arrival)}`
     + (Number.isFinite(leg.speed) ? ` · ${fmt(leg.speed, 2)} kn` : "")
-    + (leg.waitHours > 0 ? ` · αναμονή ${fmt(leg.waitHours, 1)} h έως ${utcText(leg.nextDeparture)}` : "");
+    + (leg.portHours > 0 ? ` · παραμονή ${fmt(leg.portHours, 1)} h · αναχ. ${utcText(leg.nextDeparture)}` : "");
 }
 
 /* ---------- Κεντρικός υπολογισμός ---------- */
@@ -241,15 +251,13 @@ function compute() {
   const seaDistance = total((l) => l.canal ? 0 : l.dist);
   const canals = [...new Set(legs.filter((l) => l.canal).map((l) => l.canal.label))];
   const hours = scheduleErrors.length ? NaN : total((l) => l.hours) + waitHours;
-  const etaArrEpoch = scheduleErrors.length ? NaN : legs.at(-1)?.nextDeparture;
+  const finalLeg = legs.at(-1);
+  const etaArrEpoch = scheduleErrors.length ? NaN
+    : S.legs.at(-1)?.stopDeparture ? finalLeg?.arrival : finalLeg?.nextDeparture;
   const speed = scheduleErrors.length ? NaN
     : seaHours > 0 ? seaDistance / seaHours : S.speedMode === "speed" ? S.serviceSpeed : NaN;
-  const cons = Number.isFinite(speed) ? interpolate(S.consTable, speed) : null;
   const days = hours / 24;
   const seaDays = seaHours / 24;
-  const lngM3Day = cons?.lng ?? NaN;
-  const foTDay = cons?.fo ?? NaN;
-  const mdoTDay = cons?.mdo ?? NaN;
   // Non-sailing periods use the adjacent sailing rate unless a dedicated rate is supplied.
   const sailingSpeeds = legs.map((l) => l.speed);
   const rates = legs.map((l, i) => {
@@ -261,8 +269,13 @@ function compute() {
     return interpolate(curve?.length ? curve : S.consTable, adjacentSpeed);
   });
   const phaseForecast = forecastPhases(legs, rates, S, hours);
-  const { lngM3, cargoUsed, foT, mdoT } = phaseForecast;
-  const lngT = lngM3 * S.density;
+  const { lngM3, lngT, cargoUsed, foT, mdoT } = phaseForecast;
+  const sailing = phaseForecast.rows.filter(row => row.kind === "laden" || row.kind === "ballast");
+  const perDay = (key) => seaDays > 0 ? sailing.reduce((sum, row) => sum + row[key], 0) / seaDays : NaN;
+  const lngM3Day = perDay("demand");
+  const lngTDay = perDay("lngT");
+  const foTDay = perDay("foT");
+  const mdoTDay = perDay("mdoT");
 
   // FOE: 1 t LNG = CV_LNG / CV_FOE t FOE (kcal/kg)
   const foeFactor = S.cvLNG / S.cvFOE;
@@ -299,8 +312,8 @@ function compute() {
   return {
     legs, from, to, gc, distance, transitHours, waitHours, scheduleErrors, canals, phaseForecast,
     depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
-    cons, rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
-    lngM3Day, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
+    rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
+    lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
     foeFactor, foeLNG, foeTotal, coolTotal, marginM3, marginText, requiredM3,
     arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     usableM3, heelAtLoad, maxIntakeM3, maxIntakeT,
@@ -529,7 +542,7 @@ ${row("Διάρκεια", fmt(r.days, 2) + " ημέρες (" + fmt(r.hours, 1) +
 ${row("Προτεινόμενη ταχύτητα", fmt(r.speed, 2) + " kn")}
 </table>
 <h2>Καταναλώσεις (ημερήσιες @ " + fmt(r.speed, 2) + " kn)</h2><table>
-${row("LNG", fmt(r.lngM3Day, 0) + " m³/ημ = " + fmt(r.lngM3Day * S.density, 1) + " t/ημ")}
+${row("LNG", fmt(r.lngM3Day, 0) + " m³/ημ = " + fmt(r.lngTDay, 1) + " t/ημ")}
 ${row("Fuel Oil", fmt(r.foTDay, 2) + " t/ημ")}
 ${row("Diesel (MDO)", fmt(r.mdoTDay, 2) + " t/ημ")}
 </table>
@@ -609,31 +622,64 @@ function runOcr() {
 }
 
 /* ---------- Πίνακας καταναλώσεων (UI) ---------- */
+function syncConsConversions(active) {
+  for (const [i, tr] of Array.from($("consBody").rows).entries()) {
+    const row = S.consTable[i];
+    const { volume, tonnes, foe, density } = lngConversions(row);
+    const fields = { m3: volume, t: tonnes, foe };
+    for (const [key, value] of Object.entries(fields)) {
+      const input = tr.querySelector(`[data-f="${key}"]`);
+      if (input !== active) input.value = Number.isFinite(value) ? Number(value.toFixed(6)) : "";
+    }
+    tr.querySelector('[data-f="density"]').placeholder = String(density);
+    tr.querySelector('[data-f="density"]').title = "Πυκνότητα σε χρήση: " + fmt(density, 3) + " t/m³";
+  }
+}
+
 function renderConsTable() {
   const tb = $("consBody");
-  tb.innerHTML = S.consTable
-    .map(
-      (row, i) => `<tr>
-        <td><input data-r="${i}" data-f="speed" type="number" step="0.1" min="0" value="${row.speed}" aria-label="Ταχύτητα σειρά ${i + 1}"></td>
-        <td class="num"><input data-r="${i}" data-f="lng" type="number" step="1" min="0" value="${row.lng}" aria-label="LNG m³/ημέρα σειρά ${i + 1}"></td>
-        <td class="num"><input data-r="${i}" data-f="fo" type="number" step="0.1" min="0" value="${row.fo}" aria-label="Fuel Oil t/ημέρα σειρά ${i + 1}"></td>
-        <td class="num"><input data-r="${i}" data-f="mdo" type="number" step="0.1" min="0" value="${row.mdo}" aria-label="MDO t/ημέρα σειρά ${i + 1}"></td>
-        <td><button class="row-del" data-del-row="${i}" aria-label="Διαγραφή σειράς ${i + 1}">✕</button></td>
-      </tr>`
-    )
-    .join("");
-  tb.querySelectorAll("input[data-r]").forEach((inp) =>
-    inp.addEventListener("change", () => {
-      S.consTable[+inp.dataset.r][inp.dataset.f] = num(inp.value) || 0;
-      render();
-    })
-  );
-  tb.querySelectorAll("[data-del-row]").forEach((b) =>
-    b.addEventListener("click", () => {
-      S.consTable.splice(+b.dataset.delRow, 1);
-      renderConsTable(); render();
-    })
-  );
+  const input = (i, field, label, value = "", min = 0) =>
+    `<input data-r="${i}" data-f="${field}" type="number" step="any" min="${min}" value="${Number.isFinite(value) ? value : ""}" aria-label="${label} σειρά ${i + 1}">`;
+  tb.innerHTML = S.consTable.map((row, i) => `<tr>
+      <td>${input(i, "speed", "Ταχύτητα", row.speed, 0.01)}</td>
+      <td class="num">${input(i, "m3", "LNG m³/ημέρα")}</td>
+      <td class="num">${input(i, "t", "LNG t/ημέρα")}</td>
+      <td class="num">${input(i, "foe", "LNG t FOE/ημέρα")}</td>
+      <td class="num">${input(i, "density", "Πυκνότητα t/m³", row.density, 0.001)}</td>
+      <td class="num">${input(i, "fo", "Fuel Oil t/ημέρα", row.fo)}</td>
+      <td class="num">${input(i, "mdo", "MDO t/ημέρα", row.mdo)}</td>
+      <td><button class="row-del" data-del-row="${i}" aria-label="Διαγραφή σειράς ${i + 1}">✕</button></td>
+    </tr>`).join("");
+  syncConsConversions();
+  const edit = (inp, commit) => {
+    const row = S.consTable[Number(inp.dataset.r)];
+    const field = inp.dataset.f;
+    const value = optionalNumber(inp.value);
+    if (!inp.checkValidity()) return;
+    if (field === "density") {
+      if (value > 0) row.density = value;
+      else delete row.density;
+    } else if (["m3", "t", "foe"].includes(field)) {
+      if (!commit && !Number.isFinite(value)) return;
+      row.lngUnit = field;
+      row.lngInput = Number.isFinite(value) ? value : 0;
+    } else {
+      if (!Number.isFinite(value)) return;
+      row[field] = value;
+    }
+    row.lng = lngConversions(row).volume;
+    syncConsConversions(commit ? undefined : inp);
+    render();
+  };
+  tb.querySelectorAll("input[data-r]").forEach(inp => {
+    inp.addEventListener("input", () => edit(inp, false));
+    inp.addEventListener("change", () => edit(inp, true));
+  });
+  tb.querySelectorAll("[data-del-row]").forEach(button => button.addEventListener("click", () => {
+    S.consTable.splice(Number(button.dataset.delRow), 1);
+    renderConsTable();
+    render();
+  }));
 }
 
 /* ---------- Συγχρονισμός inputs από state ---------- */
@@ -714,25 +760,28 @@ function renderLegs() {
           <span class="leg-dist" id="legDist${i}">—</span>
         </div>
         <button class="btn small danger leg-del" data-del-leg="${i}" aria-label="Διαγραφή σκέλους ${i + 1}">✕</button>
-        ${!last || canal ? `<details class="leg-timing" ${leg.stopArrival || leg.stopDeparture || leg.transitOverride ? "open" : ""}>
+        <details class="leg-timing" ${leg.stopArrival || leg.stopDeparture || leg.transitOverride || leg.speedOverride ? "open" : ""}>
           <summary>Χρονοδιάγραμμα σκέλους ${i + 1} (προαιρετικό)</summary>
           <div class="grid-form">
-          ${!last ? `
+          ${!canal ? `<label class="field">Επιθυμητή ταχύτητα σκέλους (kn)
+            <input type="number" min="0.01" step="any" data-legi="${i}" data-f="speedOverride"
+              value="${Number.isFinite(leg.speedOverride) ? leg.speedOverride : ""}" placeholder="Αυτόματα">
+          </label>` : ""}
             <label class="field">Άφιξη ${canal ? "στην έξοδο της διώρυγας" : "στο τέλος του σκέλους"}
               <input type="datetime-local" data-legi="${i}" data-f="stopArrival" value="${dateValue(leg.stopArrival)}">
             </label>
-            <label class="field">${nextCanal ? "Έναρξη διέλευσης" : "Αναχώρηση για το επόμενο σκέλος"}
+            <label class="field">${last ? "Αναχώρηση από τελικό σημείο" : nextCanal ? "Έναρξη διέλευσης" : "Αναχώρηση για το επόμενο σκέλος"}
               <input type="datetime-local" data-legi="${i}" data-f="stopDeparture" value="${dateValue(leg.stopDeparture)}">
             </label>
             <label class="field">Ζώνη ώρας σημείου
-              <select data-legi="${i}" data-f="stopTz">${tzOptions(leg.stopTz ?? portTz(leg.toIdx))}</select>
-            </label>` : ""}
+              <select data-legi="${i}" data-f="stopTz">${tzOptions(leg.stopTz ?? (last ? S.arrTz : portTz(leg.toIdx)))}</select>
+            </label>
           ${canal ? `<label class="field">Χειροκίνητη διάρκεια διέλευσης (h)
             <input type="number" min="0.1" step="any" data-legi="${i}" data-f="transitOverride"
               value="${Number.isFinite(leg.transitOverride) ? leg.transitOverride : ""}">
           </label>` : ""}
           </div>
-        </details>` : ""}
+        </details>
 
       </div>`;
     })
@@ -752,7 +801,7 @@ function renderLegs() {
       else if (f === "manualDist") S.legs[i].manualDist = num(el.value) || 0;
       else {
         S.legs[i][f] = f === "stopTz" ? num(el.value)
-          : f === "transitOverride" && el.value !== "" ? num(el.value) : el.value;
+          : ["transitOverride", "speedOverride"].includes(f) && el.value !== "" ? num(el.value) : el.value;
         render();
         return;
       }
@@ -827,15 +876,22 @@ function render() {
   $("marginAmountLabel").textContent = {lng: "Ποσότητα LNG (m³)", fo: "Ποσότητα LSHFO (t)", mdo: "Ποσότητα LSMGO (t)"}[S.marginMode] || "Ποσότητα";
 
   // Καταναλώσεις
-  if (r.cons) {
-    $("consAt").textContent = `Στα ${fmt(r.speed, 2)} kn`;
-    $("consLngDay").textContent = `${fmt(r.lngM3Day, 0)} m³/ημ = ${fmt(r.lngM3Day * S.density, 1)} t/ημ`;
+  $("consWarn").style.display = r.rateOutsideTable ? "block" : "none";
+  if ($("consPerLeg")) $("consPerLeg").innerHTML = tableHtml(
+    ["Σκέλος", "Φάση", "kn", "Ώρες", "LNG m³", "LNG t", "LNG t FOE", "LSHFO t", "MDO t"],
+    r.phaseForecast.rows.map(row => [row.leg, phaseNames[row.kind], ["laden", "ballast"].includes(row.kind) ? fmt(r.legs[row.leg - 1].speed, 2) : "—",
+      fmt(row.time, 2), fmt(row.demand, 2), fmt(row.lngT, 2), fmt(row.lngT * r.foeFactor, 2), fmt(row.foT, 2), fmt(row.mdoT, 2)])
+  );
+  if (Number.isFinite(r.lngM3Day)) {
+    $("consAt").textContent = `Μέση ημερήσια στην πλεύση · ${fmt(r.speed, 2)} kn`;
+    $("consLngDay").textContent = `${fmt(r.lngM3Day, 0)} m³/ημ = ${fmt(r.lngTDay, 1)} t/ημ`;
     $("consFoDay").textContent = `${fmt(r.foTDay, 2)} t/ημ`;
     $("consMdoDay").textContent = `${fmt(r.mdoTDay, 2)} t/ημ`;
-    $("consWarn").style.display = r.rateOutsideTable ? "block" : "none";
+    if ($("consFoeDay")) $("consFoeDay").textContent = `${fmt(r.lngTDay * r.foeFactor, 2)} t FOE/ημ`;
   } else {
-    for (const id of ["consAt", "consLngDay", "consFoDay", "consMdoDay"]) $(id).textContent = "—";
-    $("consWarn").style.display = "none";
+    for (const id of ["consAt", "consLngDay", "consFoeDay", "consFoDay", "consMdoDay"]) {
+      if ($(id)) $(id).textContent = "—";
+    }
   }
 
   // Συνολικά ταξιδίου
@@ -1002,7 +1058,7 @@ function init() {
   // — Καταναλώσεις —
   $("addRow").addEventListener("click", () => {
     const last = S.consTable[S.consTable.length - 1] || { speed: 10, lng: 100, fo: 0, mdo: 2 };
-    S.consTable.push({ speed: last.speed + 2, lng: last.lng + 60, fo: last.fo, mdo: last.mdo + 0.3 });
+    S.consTable.push({ speed: last.speed + 2, lng: lngConversions(last).volume + 60, fo: last.fo, mdo: last.mdo + 0.3 });
     renderConsTable(); render();
   });
   $("photoInput").addEventListener("change", (e) => {
@@ -1019,7 +1075,17 @@ function init() {
   });
 
   // — Πλοίο / φορτία —
-  bind("density", "density");
+  for (const key of ["density", "cvLNG", "cvFOE"]) {
+    $(key).addEventListener("change", event => {
+      const value = optionalNumber(event.target.value);
+      if (value > 0) S[key] = value;
+      else event.target.value = S[key];
+      for (const row of S.consTable) row.lng = lngConversions(row).volume;
+      syncConsConversions();
+      render();
+    });
+  }
+
   bind("capacity", "capacity");
   bind("fillPct", "fillPct");
   bind("marginMode", "marginMode", (v) => v);
@@ -1034,8 +1100,8 @@ function init() {
   );
   bind("coolTanks", "coolTanks");
   bind("coolLine", "coolLine");
-  bind("cvLNG", "cvLNG");
-  bind("cvFOE", "cvFOE");
+
+
   bind("robLng", "robLng");
   bind("robFo", "robFo");
   bind("robMdo", "robMdo");
