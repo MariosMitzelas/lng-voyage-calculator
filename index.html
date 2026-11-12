@@ -35,6 +35,8 @@
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-cons" data-testid="tab-cons"><span class="num">2</span>Καταναλώσεις</button>
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-lng" data-testid="tab-lng"><span class="num">3</span>LNG &amp; Bunkers</button>
       <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-results" data-testid="tab-results"><span class="num">4</span>Σύνοψη</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-ops">Voyage Operations</button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-panel="panel-discharge">Εκφόρτωση</button>
     </nav>
   </header>
 
@@ -55,11 +57,12 @@
 
       <div class="card">
         <h2><span class="step">1</span>Σκέλη πλόου</h2>
-        <p class="hint">Ορίστε το πλάνο του πλόου σκέλος-σκέλος. Για διέλευση από Σουέζ ή Παναμά, προσθέστε σκέλος Port Said → Suez ή Cristóbal → Balboa — η απόσταση και οι ώρες διέλευσης της διώρυγας υπολογίζονται αυτόματα. Οι ζώνες ώρας αναχώρησης/άφιξης ακολουθούν αυτόματα τους ακραίους λιμένες.</p>
+        <p class="hint">Πρόσθεσε ένα σκέλος για κάθε τμήμα του πλόου. Για διώρυγα επίλεξε Port Said ↔ Suez ή Cristóbal ↔ Balboa ως ξεχωριστό σκέλος. Οι προεπιλεγμένες ώρες διέλευσης αλλάζουν παρακάτω.</p>
         <div id="legsList" data-testid="list-legs"></div>
         <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
           <button class="btn small" id="addLeg" data-testid="button-add-leg">+ Προσθήκη σκέλους</button>
         </div>
+        <p class="hint">Στο σκέλος πριν από τη διώρυγα μπορείς να δηλώσεις άφιξη στην είσοδο και έναρξη διέλευσης. Οι καθορισμένες ώρες δίνουν την απαιτούμενη ταχύτητα μέχρι το σημείο.</p>
         <div class="grid-form" style="margin-top:var(--space-5)">
           <div class="field">
             <label for="routingFactor">Συντελεστής δρομολόγησης</label>
@@ -235,10 +238,21 @@
         </fieldset>
         <fieldset>
           <legend>Safety margin &amp; Cool-down</legend>
-          <div class="field">
-            <label for="marginPct">Safety margin (%)</label>
-            <input type="number" id="marginPct" step="1" min="0" max="50" value="10">
-            <span class="unit-hint">πρόσθετη κατανάλωση ως ασφάλεια</span>
+          <label class="field">Μονάδα safety margin
+            <select id="marginMode">
+              <option value="pct">% κατανάλωσης LNG</option>
+              <option value="lng">m³ LNG</option>
+              <option value="mdo">t LSMGO (MDO)</option>
+              <option value="fo">t LSHFO (FO)</option>
+              <option value="none">Χωρίς margin</option>
+            </select>
+          </label>
+          <label class="field">Safety margin (%)
+            <input type="number" id="marginPct" step="any" min="0">
+          </label>
+          <div class="field" hidden>
+            <label for="marginAmount" id="marginAmountLabel">Ποσότητα</label>
+            <input type="number" id="marginAmount" step="any" min="0">
           </div>
           <div class="field">
             <label for="coolTanks">Cool-down δεξαμενών (m³)</label>
@@ -252,6 +266,16 @@
           </div>
         </fieldset>
       </div>
+
+      <details class="card">
+        <summary>Κατανάλωση σε αναμονή (προαιρετικό)</summary>
+        <p class="hint">Κενό πεδίο χρησιμοποιεί την ημερήσια τιμή του αντίστοιχου σκέλους. Βάλε 0 για μηδενική κατανάλωση.</p>
+        <div class="grid-form">
+          <label class="field">LNG (m³/ημέρα)<input type="number" min="0" step="any" id="idleLng"></label>
+          <label class="field">LSHFO (t/ημέρα)<input type="number" min="0" step="any" id="idleFo"></label>
+          <label class="field">LSMGO (t/ημέρα)<input type="number" min="0" step="any" id="idleMdo"></label>
+        </div>
+      </details>
 
       <div class="card">
         <h2><span class="step">2</span>Ποσότητες αναχώρησης (ROB)</h2>
@@ -277,12 +301,12 @@
         <div class="result-grid">
           <div class="result-box"><div class="r-label">LNG αναχώρησης</div><div class="r-value" style="font-size:var(--text-base)" id="depLngOut" data-testid="text-dep-lng">—</div></div>
           <div class="result-box"><div class="r-label">LNG άφιξης (υπολογισμός)</div><div class="r-value" style="font-size:var(--text-base)" id="arrLngOut" data-testid="text-arr-lng">—</div></div>
-          <div class="result-box"><div class="r-label">LNG άφιξης (με margin + cool-down)</div><div class="r-value" style="font-size:var(--text-base)" id="arrLngMarginOut" data-testid="text-arr-lng-margin">—</div></div>
-          <div class="result-box"><div class="r-label">FO αναχ. / άφιξης (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depFoOut">—</span> / <span id="arrFoOut">—</span></div></div>
-          <div class="result-box"><div class="r-label">MDO αναχ. / άφιξης (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depMdoOut">—</span> / <span id="arrMdoOut">—</span></div></div>
+          <div class="result-box"><div class="r-label">LNG διαθέσιμο μετά από margin και cool-down</div><div class="r-value" style="font-size:var(--text-base)" id="arrLngMarginOut" data-testid="text-arr-lng-margin">—</div></div>
+          <div class="result-box"><div class="r-label">LSHFO αναχ. / διαθέσιμο μετά το margin (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depFoOut">—</span> / <span id="arrFoOut">—</span></div></div>
+          <div class="result-box"><div class="r-label">LSMGO αναχ. / διαθέσιμο μετά το margin (t)</div><div class="r-value" style="font-size:var(--text-base)"><span id="depMdoOut">—</span> / <span id="arrMdoOut">—</span></div></div>
           <div class="result-box"><div class="r-label">Cool-down δεξαμενές + γραμμή</div><div class="r-value" style="font-size:var(--text-base)" id="coolOut" data-testid="text-cool">—</div></div>
           <div class="result-box"><div class="r-label">Safety margin</div><div class="r-value" style="font-size:var(--text-base)" id="marginOut" data-testid="text-margin">—</div></div>
-          <div class="result-box hero"><div class="r-label">Συνολική απαιτούμενη ποσότητα LNG</div><div class="r-value" id="reqOut" data-testid="text-required">—</div><div class="r-sub">κατανάλωση + margin + cool-down</div></div>
+          <div class="result-box hero"><div class="r-label">Συνολική απαιτούμενη ποσότητα LNG</div><div class="r-value" id="reqOut" data-testid="text-required">—</div><div class="r-sub">μείωση LNG + margin + cool-down</div></div>
         </div>
       </div>
 
@@ -296,6 +320,43 @@
         </div>
       </div>
 
+      <details class="card optional-analysis">
+        <summary>Ανάλυση LNG, κόστους και εκπομπών (προαιρετική)</summary>
+        <p class="hint">Χρησιμοποιεί τη διάρκεια και τις καταναλώσεις του πλόου. Συμπλήρωσε μόνο τα στοιχεία που θέλεις. Για BOG, η εκτίμηση θεωρεί ότι το διαθέσιμο BOG καλύπτει πρώτα την κατανάλωση LNG.</p>
+        <fieldset><legend>Φορτίο &amp; BOG</legend>
+          <label class="field">Φορτωμένη ποσότητα (m³)<input type="number" min="0" step="any" data-analysis="loaded"></label>
+          <label class="field">Heel που θα διατηρηθεί (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
+          <label class="field">Ημερήσιο BOR (%)<input type="number" min="0" max="100" step="any" data-analysis="bor"></label>
+          <label class="field">BOG που επαναϋγροποιείται (m³ LNG συνολικά)<input type="number" min="0" step="any" data-analysis="reliq"></label>
+          <label class="field">Εκτιμώμενο LNG για το ταξίδι επιστροφής (m³)<input type="number" min="0" step="any" data-analysis="returnLng"></label>
+          <label class="field">Απόδοση ηλεκτροπαραγωγής (%)<input type="number" min="0" max="100" step="any" data-analysis="powerEfficiency"></label>
+          <label class="field">Εκφόρτωση / παραμονή (ημέρες)<input type="number" min="0" step="any" data-analysis="unloadDays"></label>
+        </fieldset>
+        <fieldset><legend>Κόστος &amp; έσοδα</legend>
+          <label class="field">Εμπορικός όρος
+            <select data-analysis="incoterm"><option value="">—</option><option value="fob">FOB</option><option value="dap">DES / DAP</option></select>
+          </label>
+          <label class="field">Τιμή πώλησης (USD/MMBtu)<input type="number" min="0" step="any" data-analysis="salePrice"></label>
+          <label class="field">Αγορά φυσικού αερίου (USD/MMBtu)<input type="number" min="0" step="any" data-analysis="gas"></label>
+          <label class="field">Υγροποίηση (USD/MMBtu)<input type="number" min="0" step="any" data-analysis="liquefaction"></label>
+          <label class="field">Επαναεριοποίηση (USD/MMBtu)<input type="number" min="0" step="any" data-analysis="regas"></label>
+          <label class="field">Ναύλωση (USD/ημέρα)<input type="number" min="0" step="any" data-analysis="hire"></label>
+          <label class="field">Διόδια για τα σκέλη του πλόου (USD)<input type="number" min="0" step="any" data-analysis="canalFee"></label>
+          <label class="field">Χρέωση εκπομπών (USD)<input type="number" min="0" step="any" data-analysis="carbonFee"></label>
+          <label class="field">Συνολικά λιμενικά έξοδα (USD)<input type="number" min="0" step="any" data-analysis="portFee"></label>
+          <label class="field">Τιμή LSMGO (USD/t)<input type="number" min="0" step="any" data-analysis="mdoPrice"></label>
+          <label class="field">Τιμή LSHFO (USD/t)<input type="number" min="0" step="any" data-analysis="foPrice"></label>
+          <label class="field">Τιμή LNG καυσίμου (USD/t)<input type="number" min="0" step="any" data-analysis="lngFuelPrice"></label>
+        </fieldset>
+        <fieldset><legend>Συντελεστές εκπομπών καύσης</legend>
+          <label class="field">LSMGO (t CO₂/t καυσίμου)<input type="number" min="0" step="any" data-analysis="mdoCo2"></label>
+          <label class="field">LSHFO (t CO₂/t καυσίμου)<input type="number" min="0" step="any" data-analysis="foCo2"></label>
+          <label class="field">LNG (t CO₂/t καυσίμου)<input type="number" min="0" step="any" data-analysis="lngCo2"></label>
+          <label class="field">Vented BOG (t CO₂e συνολικά)<input type="number" min="0" step="any" data-analysis="ventCo2e"></label>
+          <label class="field">Methane slip (t CO₂e συνολικά)<input type="number" min="0" step="any" data-analysis="slipCo2e"></label>
+        </fieldset>
+      </details>
+
     </section>
 
     <!-- ================= 4. ΣΥΝΟΨΗ ================= -->
@@ -306,10 +367,16 @@
         <div class="table-wrap">
           <table class="data-table" id="fullSummary" data-testid="table-summary"></table>
         </div>
+
+
         <div style="margin-top:var(--space-4);display:flex;gap:var(--space-2);flex-wrap:wrap" class="no-print">
           <button class="btn primary" id="btnReport2" data-testid="button-report2">Λήψη αναφοράς (HTML)</button>
           <button class="btn" id="btnPrint2" data-testid="button-print2">Εκτύπωση / PDF</button>
         </div>
+      </div>
+      <div class="card" id="analysisResults" hidden>
+        <h2>Ανάλυση φορτίου, κόστους και εκπομπών</h2>
+        <div class="table-wrap"><table class="data-table"><tbody></tbody></table></div>
       </div>
       <div class="card">
         <h2>FOE — Fuel Oil Equivalent</h2>
@@ -321,10 +388,89 @@
       </div>
     </section>
 
+    <section class="panel" id="panel-ops" role="tabpanel" aria-label="Voyage Operations">
+      <div class="card">
+        <h2>Noon Update &amp; Replan</h2>
+        <p class="hint">Πέρασε τα πραγματικά ROB και τα μίλια που απομένουν στο ενεργό σκέλος. Κάθε ενημέρωση υπολογίζεται από το ίδιο αρχικό δρομολόγιο, ώστε να μπορείς να αναθεωρείς το πλάνο καθημερινά.</p>
+        <div class="ops-actions"><button class="btn" id="opsBaseline">Χρήση του τρέχοντος ταξιδιού ως αρχικού πλάνου</button></div>
+        <p id="opsBaseStatus" class="hint" aria-live="polite"></p>
+        <label class="field">Ενεργό σκέλος<select id="opsLeg"></select></label>
+<div class="grid-form ops-fields"><label class="field">Χρόνος ενημέρωσης (UTC)<input type="datetime-local" id="opsStamp" ></label>
+<label class="field">Μίλια που απομένουν στο σκέλος<input type="number" id="opsNm" min="0" step="any"></label>
+<label class="field">Ώρες που απομένουν στη διώρυγα<input type="number" id="opsCanal" min="0" step="any"></label>
+<label class="field">Πραγματικό LNG ROB (m³)<input type="number" id="opsLng" min="0" step="any"></label>
+<label class="field">Πραγματικό LSMGO ROB (t)<input type="number" id="opsMdo" min="0" step="any"></label>
+<label class="field">Πραγματικό LSHFO ROB (t)<input type="number" id="opsFo" min="0" step="any"></label></div>        <p class="hint">Στην είσοδο της διώρυγας, όσο περιμένεις να ξεκινήσει η διέλευση, επίλεξε το προηγούμενο σκέλος με 0 nm. Για ενημέρωση μέσα στη διώρυγα, επίλεξε το σκέλος διέλευσης και συμπλήρωσε τις ώρες που απομένουν. Χρησιμοποίησε «Αποθήκευση» ή εξαγωγή ταξιδιού για να κρατήσεις το ιστορικό.</p>
+        <div class="ops-actions"><button type="button" class="btn primary" id="opsSaveNoon">Καταχώριση Noon Update</button></div>
+        <label class="field">Ενημέρωση προς χρήση<select id="opsHistory"></select></label>
+        <p id="opsNoonStatus" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h2>Σενάρια slot &amp; άφιξης</h2>
+        <p class="hint">Οι καθυστερήσεις μετακινούν την έναρξη διέλευσης ή το ETD στο επιλεγμένο σημείο. Η τελική ETA μένει στόχος, εφόσον υπάρχει καθορισμένη ώρα ή παράθυρο άφιξης.</p>
+        <label class="field">Σημείο καθυστέρησης<select id="opsSlot"></select></label>
+<div class="grid-form ops-fields"><label class="field">Καθυστέρηση A (h)<input type="number" id="opsDelayA" min="0" step="any"></label>
+<label class="field">Καθυστέρηση B (h)<input type="number" id="opsDelayB" min="0" step="any"></label>
+<label class="field">Καθυστέρηση C (h)<input type="number" id="opsDelayC" min="0" step="any"></label>
+<label class="field">Μέγιστη ταχύτητα πλοίου (kn)<input type="number" id="opsMax" min="0" step="any"></label>
+<label class="field">Άνοιγμα παραθύρου άφιξης (UTC)<input type="datetime-local" id="opsOpen" ></label>
+<label class="field">Κλείσιμο παραθύρου άφιξης (UTC)<input type="datetime-local" id="opsClose" ></label>
+<label class="field">Ελάχιστο heel μετά το cool-down (m³)<input type="number" id="opsHeel" min="0" step="any"></label></div>        <div class="ops-actions"><button type="button" class="btn primary" id="opsCompare">Υπολογισμός σεναρίων</button></div>
+        <p id="opsScenarioStatus" aria-live="polite"></p>
+        <div class="table-wrap"><table class="data-table" id="opsTable"></table></div>
+        <label class="field">Σενάριο για το update<select id="opsPick"></select></label>
+        <div class="ops-actions"><button type="button" class="btn " id="opsCopy">Αντιγραφή update</button><button type="button" class="btn " id="opsDownload">Λήψη update (.txt)</button></div>
+        <label class="field">Update για Master / Operations<textarea id="opsBrief" rows="7" readonly></textarea></label>
+      </div>
+      <div class="card">
+        <h2>Καταναλώσεις &amp; BOG ανά φάση</h2>
+        <p class="hint">Επίλεξε laden ή ballast σε κάθε leg. Η προαιρετική καμπύλη laden/ballast δέχεται μία γραμμή ανά ταχύτητα στη μορφή <code>kn, LNG m³/day, LSHFO t/day, LSMGO t/day</code>, με τελεία στα δεκαδικά. Κενή καμπύλη χρησιμοποιεί τον βασικό πίνακα.</p>
+        <div class="grid-form ops-fields">
+          <label class="field">Καμπύλη laden<textarea id="opsLaden" rows="4"></textarea></label>
+          <label class="field">Καμπύλη ballast<textarea id="opsBallast" rows="4"></textarea></label>
+        </div>
+        <div class="table-wrap"><table class="data-table" id="opsPhaseInputs"></table></div>
+        <p class="hint">Κενή κατανάλωση διώρυγας χρησιμοποιεί τον ρυθμό του γειτονικού σκέλους. Το BOR εφαρμόζεται στο LNG ROB που απομένει στην αρχή κάθε φάσης. Στο μοντέλο BOG, το natural BOG καλύπτει πρώτα τη ζήτηση LNG. Το FRS ανακτά μόνο μέρος του πλεονάσματος. Το υπόλοιπο πλεόνασμα υπολογίζεται ως απώλεια φορτίου χωρίς διάκριση GCU/venting.</p>
+        <div class="ops-actions"><button type="button" class="btn " id="opsApplyModel">Εφαρμογή καμπυλών και φάσεων</button></div>
+        <p id="opsModelStatus" aria-live="polite"></p>
+        <div class="table-wrap"><table class="data-table" id="opsPhaseResults"></table></div>
+      </div>
+      <div class="card">
+        <h2>Προφίλ πλοίου</h2>
+        <p class="hint">Το προφίλ αποθηκεύει ρυθμίσεις πλοίου, καμπύλες, παραμέτρους ανά φάση, όρια και safety margin. Φύλαξε ένα αντίγραφο JSON για χρήση σε άλλον browser ή υπολογιστή.</p>
+<div class="grid-form ops-fields"><label class="field">Όνομα προφίλ<input type="text" id="opsProfileName" ></label></div>        <label class="field">Αποθηκευμένα προφίλ<select id="opsProfiles"></select></label>
+        <div class="ops-actions"><button type="button" class="btn " id="opsProfileSave">Αποθήκευση προφίλ</button><button type="button" class="btn " id="opsProfileLoad">Φόρτωση προφίλ</button><button type="button" class="btn " id="opsProfileExport">Εξαγωγή προφίλ</button><label class="btn" for="opsProfileImport">Εισαγωγή προφίλ</label><input class="sr-only" type="file" id="opsProfileImport" accept="application/json"></div>
+        <p id="opsProfileStatus" aria-live="polite"></p>
+      </div>
+    </section>
+    <section class="panel" id="panel-discharge" role="tabpanel" aria-label="Πρόγραμμα εκφόρτωσης">
+      <div class="card">
+        <h2>Πρόγραμμα εκφόρτωσης &amp; heel</h2>
+        <p class="hint">Μπορείς να βάλεις ποσότητα εκφόρτωσης ή στόχο heel. Οι ώρες ramp-up/down μοντελοποιούνται γραμμικά μεταξύ μηδενικής παροχής και της μέγιστης παροχής τερματικού. Η ποσότητα stripping περιλαμβάνεται στην ποσότητα προς εκφόρτωση.</p>
+<div class="grid-form ops-fields"><label class="field">Έναρξη εκφόρτωσης (UTC)<input type="datetime-local" id="discStart" ></label>
+<label class="field">LNG πριν την εκφόρτωση (m³)<input type="number" id="discLoaded" min="0" step="any"></label>
+<label class="field">Ποσότητα εκφόρτωσης (m³)<input type="number" id="discVolume" min="0" step="any"></label>
+<label class="field">Στόχος heel (m³)<input type="number" id="discHeel" min="0" step="any"></label>
+<label class="field">Μέγιστη παροχή τερματικού (m³/h)<input type="number" id="discRate" min="0" step="any"></label>
+<label class="field">Ramp-up (h)<input type="number" id="discUp" min="0" step="any"></label>
+<label class="field">Ramp-down (h)<input type="number" id="discDown" min="0" step="any"></label>
+<label class="field">Stripping ποσότητα (m³)<input type="number" id="discStripVolume" min="0" step="any"></label>
+<label class="field">Stripping διάρκεια (h)<input type="number" id="discStripTime" min="0" step="any"></label>
+<label class="field">Πρόσθετη απώλεια LNG κατά την εκφόρτωση (m³)<input type="number" id="discLoss" min="0" step="any"></label></div>        <div class="ops-actions"><button type="button" class="btn primary" id="discCompute">Υπολογισμός εκφόρτωσης</button><button type="button" class="btn" id="discUseForecast">Χρήση προβλεπόμενου LNG ROB άφιξης</button></div>
+        <p id="discStatus" aria-live="polite"></p>
+        <div class="table-wrap"><table class="data-table" id="discResult"></table></div>
+      </div>
+      <div class="card">
+        <h2>Προαιρετικό ισοζύγιο δεξαμενών</h2>
+        <p class="hint">Βάλε αρχικό όγκο, προγραμματισμένο heel και, προαιρετικά, τις εγκεκριμένες τιμές min/max heel από τα στοιχεία του πλοίου. Ο έλεγχος αφορά τις ποσότητες που εισάγεις.</p>
+        <div class="table-wrap"><table class="data-table" id="discTanks"></table></div>
+        <div class="ops-actions"><button type="button" class="btn " id="discAddTank">Προσθήκη δεξαμενής</button></div>
+      </div>
+    </section>
   </main>
 
   <footer class="app-footer">
-    VoyageCalc LNG v1.0 — Εργαλείο υπολογισμών πλόου για LNG carriers. Οι αποστάσεις είναι ενδεικτικές (great-circle)· χρησιμοποιείτε πάντα το εγκεκριμένο passage plan του πλοίου.
+    VoyageCalc LNG — Εργαλείο υπολογισμών πλόου για LNG carriers. Οι αποστάσεις είναι ενδεικτικές (great-circle)· χρησιμοποιείτε πάντα το εγκεκριμένο passage plan του πλοίου.
     <br>Built with <a href="https://www.perplexity.ai" rel="noopener">Perplexity</a>
   </footer>
 
@@ -340,5 +486,6 @@
 
   <script src="js/ports.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/operations.js"></script>
 </body>
 </html>
