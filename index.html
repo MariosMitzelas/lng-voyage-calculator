@@ -147,6 +147,29 @@
       <div class="card">
         <h2><span class="step">1</span>Πίνακας καταναλώσεων πλοίου</h2>
         <p class="hint">Σε κάθε ταχύτητα μπορείς να γράψεις το LNG σε m³, μετρικούς τόνους ή τόνους FOE ανά ημέρα. Η τελευταία τιμή που αλλάζεις ορίζει τη βάση της σειράς και τα άλλα πεδία συμπληρώνονται αυτόματα. Κενή πυκνότητα χρησιμοποιεί την τιμή από LNG &amp; Bunkers, όπου ρυθμίζονται και οι θερμογόνες δυνάμεις.</p>
+        <details id="cpPanel" open>
+          <summary><strong>Ιδιωτικό προφίλ Charter Party</strong></summary>
+          <div class="ops-actions"><label class="btn small" for="cpImport">Εισαγωγή και εφαρμογή προφίλ JSON</label>
+            <input type="file" id="cpImport" accept=".json,application/json" class="sr-only"></div>
+          <p id="cpProfileState" class="hint" aria-live="polite"></p>
+          <div id="cpContent" hidden>
+            <p class="hint">Οι επιλεγμένες καμπύλες χρησιμοποιούνται στα αντίστοιχα θαλάσσια σκέλη. Η Αποθήκευση ή η Εξαγωγή του ταξιδιού κρατά τις επιλογές μαζί με το προφίλ.</p>
+            <div id="cpOptions" class="grid-form ops-fields"></div>
+            <div id="cpInputs" class="grid-form ops-fields"></div>
+            <h3>Συμβατικός πίνακας Gas Mode</h3>
+            <div class="table-wrap"><table class="data-table" id="cpCurve"></table></div>
+            <h3>Λειτουργίες λιμένα</h3>
+            <p class="hint">Η χωριστή εκτίμηση λιμένα χρησιμοποιεί διαδοχικά χρονικά διαστήματα και εμφανίζεται σε LSGO-eq. Για να περάσει κατανάλωση στα σύνολα ταξιδιού, αντιστοίχισε λειτουργία και πραγματική βάση καυσίμου σε ενδιάμεση αναμονή.</p>
+            <div id="cpPorts" class="grid-form ops-fields"></div>
+            <p id="cpPortResult" aria-live="polite"></p>
+            <div id="cpStops"></div>
+            <h3>Όροι και έλεγχοι Charter Party</h3>
+            <p class="hint">Τα συμβατικά όρια BOG εμφανίζονται χωριστά από το μοντέλο φυσικού boil-off και το ROB. Οι εξαιρέσεις εμφανίζονται με τα στοιχεία που καταχωρίζεις.</p>
+            <div class="table-wrap"><table class="data-table" id="cpRules"></table></div>
+            <div class="table-wrap"><table class="data-table" id="cpNotes"></table></div>
+          </div>
+        </details>
+        <h3>Χειροκίνητη καμπύλη</h3>
         <div class="table-wrap">
           <table class="data-table">
             <thead>
@@ -390,7 +413,7 @@
       <div class="card">
         <h2>FOE — Fuel Oil Equivalent</h2>
         <div class="result-grid">
-          <div class="result-box"><div class="r-label">Συντελεστής FOE</div><div class="r-value" id="foeFactorOut" data-testid="text-foe-factor">—</div><div class="r-sub">1 t LNG = X t FOE</div></div>
+          <div class="result-box"><div class="r-label">Συντελεστής FOE</div><div class="r-value" id="foeFactorOut" data-testid="text-foe-factor">—</div><div class="r-sub" id="foeFactorUnit">t FOE ανά t LNG</div></div>
           <div class="result-box"><div class="r-label">FOE LNG ταξιδίου</div><div class="r-value" id="foeLngOut" data-testid="text-foe-lng">—</div></div>
           <div class="result-box"><div class="r-label">Συνολικό FOE (LNG+FO+MDO)</div><div class="r-value" id="foeAllOut" data-testid="text-foe-all">—</div></div>
         </div>
@@ -589,6 +612,7 @@
   <script src="js/ports.js"></script>
   <script src="js/app.js"></script>
   <script src="js/operations.js"></script>
+  <script src="js/charter.js"></script>
   <script src="js/transfer.js"></script>
   <script src="js/ramp.js"></script>
 </body>
