@@ -147,6 +147,29 @@
       <div class="card">
         <h2><span class="step">1</span>Πίνακας καταναλώσεων πλοίου</h2>
         <p class="hint">Σε κάθε ταχύτητα μπορείς να γράψεις το LNG σε m³, μετρικούς τόνους ή τόνους FOE ανά ημέρα. Η τελευταία τιμή που αλλάζεις ορίζει τη βάση της σειράς και τα άλλα πεδία συμπληρώνονται αυτόματα. Κενή πυκνότητα χρησιμοποιεί την τιμή από LNG &amp; Bunkers, όπου ρυθμίζονται και οι θερμογόνες δυνάμεις.</p>
+        <fieldset id="manualBor">
+          <legend>Δικό σου Boil-Off Rate</legend>
+          <p class="hint">Ενεργοποίησε χωριστά το Laden ή το Ballast. Ο συντελεστής χρησιμοποιείται για τη φυσική παραγωγή BOG και την πρόβλεψη LNG ROB. Τα συμβατικά όρια του Charter Party εμφανίζονται στο προφίλ του.</p>
+          <div class="grid-form ops-fields">
+            <div class="field">
+              <label><input type="checkbox" data-bor-phase="laden" data-bor-key="enabled"> Χειροκίνητο BOR · Laden</label>
+              <label>BOR Laden (%/ημέρα)<input type="number" min="0" max="100" step="any" inputmode="decimal" data-bor-phase="laden" data-bor-key="rate" disabled></label>
+              <label>Βάση BOR Laden<select data-bor-phase="laden" data-bor-key="basis" disabled>
+                <option value="capacity">Συνολική χωρητικότητα δεξαμενών</option>
+                <option value="rob">LNG ROB στην αρχή της φάσης</option>
+              </select></label>
+            </div>
+            <div class="field">
+              <label><input type="checkbox" data-bor-phase="ballast" data-bor-key="enabled"> Χειροκίνητο BOR · Ballast</label>
+              <label>BOR Ballast (%/ημέρα)<input type="number" min="0" max="100" step="any" inputmode="decimal" data-bor-phase="ballast" data-bor-key="rate" disabled></label>
+              <label>Βάση BOR Ballast<select data-bor-phase="ballast" data-bor-key="basis" disabled>
+                <option value="capacity">Συνολική χωρητικότητα δεξαμενών</option>
+                <option value="rob">LNG ROB στην αρχή της φάσης</option>
+              </select></label>
+            </div>
+          </div>
+          <p class="hint" id="manualBorStatus" aria-live="polite"></p>
+        </fieldset>
         <details id="cpPanel" open>
           <summary><strong>Ιδιωτικό προφίλ Charter Party</strong></summary>
           <div class="ops-actions"><label class="btn small" for="cpImport">Εισαγωγή και εφαρμογή προφίλ JSON</label>
