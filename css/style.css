@@ -446,3 +446,26 @@ details > summary { cursor: pointer; }
 .transfer-rate-start { background: #4489b6; }
 .transfer-volume { background: #a36fcc; }
 #quickDischarge > summary { cursor: pointer; font-weight: 650; }
+
+/* Guided cargo transfer schedules */
+.ramp-panel { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 0.65rem; }
+.ramp-panel summary { cursor: pointer; font-weight: 600; }
+.ramp-panel textarea { width: 100%; min-height: 4rem; resize: vertical; padding: 0.6rem; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 0.4rem; }
+.ramp-panel [hidden] { display: none !important; }
+.ramp-panel .btn, .ramp-balance { margin-top: 0.65rem; }
+.ramp-legend, .ramp-axis, .ramp-time { display: flex; gap: 0.75rem; margin: 0.35rem 0; }
+.ramp-legend { flex-wrap: wrap; }
+.ramp-legend i { display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.3em; border-radius: 2px; }
+.ramp-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0.5rem; }
+.ramp-time, .ramp-axis { justify-content: space-between; font-variant-numeric: tabular-nums; }
+.ramp-axis { flex-direction: column; text-align: right; margin: 0; font-size: var(--text-xs); }
+.ramp-time { grid-column: 2; }
+.ramp-plot { display: flex; align-items: stretch; position: relative; height: 10rem; border-bottom: 1px solid currentColor; }
+.ramp-column { display: flex; flex-direction: column-reverse; min-width: 0; }
+.ramp-marker { position: absolute; top: 0; bottom: 0; border-left: 1px dashed currentColor; opacity: 0.65; }
+.ramp-limit { position: absolute; left: 0; right: 0; border-top: 1px dashed currentColor; pointer-events: none; }
+.ramp-offset-row { display: grid; grid-template-columns: 2.6rem minmax(2rem, 1fr) 3.3rem minmax(2rem, 1fr) 3.3rem; align-items: center; gap: 0.25rem; }
+.ramp-offset-row strong { text-align: right; font-variant-numeric: tabular-nums; }
+.ramp-offset-track { height: 0.7rem; position: relative; background: linear-gradient(90deg, transparent 49.5%, currentColor 49.5% 50.5%, transparent 50.5%); }
+.ramp-offset-track i { position: absolute; height: 100%; background: #49c5ed; }
+#rampOutput .table-wrap { margin-top: 0.7rem; }
