@@ -9,8 +9,9 @@ const transferTables = {
     title: "Δεξαμενές",
     hint: "Το μέγιστο m³ είναι ο επιτρεπτός όγκος εργασίας. Το όριο topping-off εφαρμόζεται σε στάδια Topping-off, τα οποία μπορούν να περιλαμβάνουν μείωση παροχής. Στην εκφόρτωση, το αντίστοιχο όριο εφαρμόζεται στο Stripping.",
     fields: [["id", "Tank"], ["start", "Αρχικά m³", "number"], ["target", "Στόχος m³", "number"],
-      ["min", "Ελάχιστα m³", "number"], ["max", "Μέγιστα m³", "number"], ["rate", "Μέγ. m³/h", "number"],
-      ["finalRate", "Όριο topping/strip m³/h", "number"]],
+      ["min", "Ελάχιστα m³", "number"], ["max", "Μέγιστα m³", "number"], ["capacity", "Χωρητικότητα 100% m³", "number"],
+      ["rate", "Μέγ. m³/h", "number"],
+      ["finalRate", "Όριο topping/strip m³/h", "number"], ["topStart", "Έναρξη topping m³ (προαιρετικό)", "number"]],
   },
   pumps: {
     title: "Αντλίες / ομάδες",
@@ -357,6 +358,7 @@ function renderTransferResult() {
 function clearTransferResults() {
   $("transferResults").hidden = true;
   $("transferStatus").replaceChildren();
+  if (typeof clearGuidedRamp === "function") clearGuidedRamp();
 }
 
 function syncTransferPlanner() {
@@ -367,6 +369,7 @@ function syncTransferPlanner() {
   }
   renderTransferTables();
   clearTransferResults();
+  if (typeof syncGuidedRamp === "function") syncGuidedRamp();
 }
 
 function editTransferField(event) {
