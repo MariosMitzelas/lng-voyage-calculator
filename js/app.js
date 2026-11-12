@@ -74,10 +74,11 @@ const DEFAULTS = {
   ],
   // Πλοίο / φορτία
   density: 0.45, capacity: 174000, fillPct: 98.5,
-  marginPct: 10, coolTanks: 150, coolLine: 30,
+  marginMode: "pct", marginPct: 10, marginAmount: "", coolTanks: 150, coolLine: 30,
   cvLNG: 12430, cvFOE: 11500,
   // ROB αναχώρησης
   robLng: 4000, robFo: 800, robMdo: 400,
+  analysis: {},
 };
 
 let S = JSON.parse(JSON.stringify(DEFAULTS));
@@ -88,6 +89,8 @@ function migrateState(s) {
   if (!Array.isArray(s.legs)) {
     d.legs = [{ fromIdx: s.fromIdx ?? 0, toIdx: s.toIdx ?? 35, distMode: s.distMode ?? "gc", manualDist: s.manualDist ?? 5000 }];
   }
+  if (!d.analysis || typeof d.analysis !== "object") d.analysis = {};
+  if (s.marginPct === null) d.marginPct = "";
   if (!Number.isFinite(s.suezHours)) d.suezHours = 14;
   if (!Number.isFinite(s.panamaHours)) d.panamaHours = 12;
   return d;
@@ -125,6 +128,88 @@ function interpolate(table, speed) {
   return null;
 }
 
+const HOUR = 3600000;
+const optionalNumber = (value) => value === "" || value == null ? NaN : num(value);
+const utcText = (epoch) => Number.isFinite(epoch)
+  ? new Date(epoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC"
+  : "—";
+
+function stopEpoch(value, offset) {
+  const [date, time] = (typeof value === "string" ? value : "").split("T");
+  return localToEpoch(date, time, offset);
+}
+
+function planLegs(legs, start, finalTarget) {
+  const errors = [];
+  let blockStart = 0;
+  let departure = start;
+
+  for (let i = 0; i < legs.length; i++) {
+    const leg = legs[i];
+    const last = i === legs.length - 1;
+    const input = S.legs[i];
+    const offset = Number.isFinite(input.stopTz) ? input.stopTz : leg.to.tz;
+    const arrive = last ? finalTarget : stopEpoch(input.stopArrival, offset);
+    const leave = last ? NaN : stopEpoch(input.stopDeparture, offset);
+    const hasArrival = Number.isFinite(arrive);
+    const target = hasArrival ? arrive : leave;
+    const fixedSpeedDeparture = !hasArrival && Number.isFinite(leave) && S.speedMode === "speed";
+
+    // Explicit entry and exit times can define the actual transit duration.
+    const preceding = S.legs[i - 1];
+    const fixedEntry = i === 0 || (preceding && (preceding.stopDeparture || preceding.stopArrival));
+    if (leg.canal && (!last || i > 0) && blockStart === i && fixedEntry && hasArrival
+        && Number.isFinite(departure) && !Number.isFinite(optionalNumber(input.transitOverride))) {
+      leg.canal.hours = (arrive - departure) / HOUR;
+    }
+
+    if (!last && !Number.isFinite(target)) continue;
+    const block = legs.slice(blockStart, i + 1);
+    const seaDistance = block.reduce((sum, l) => sum + (l.canal ? 0 : l.dist), 0);
+    const canalHours = block.reduce((sum, l) => sum + (l.canal?.hours ?? 0), 0);
+    const anchored = Number.isFinite(target);
+    const availableHours = (target - departure) / HOUR - canalHours;
+    const speed = fixedSpeedDeparture || (!anchored && S.speedMode === "speed") ? S.serviceSpeed
+      : seaDistance > 0 && anchored ? seaDistance / availableHours : NaN;
+    const fixedTransitConflict = seaDistance === 0 && leg.canal && fixedEntry && hasArrival
+      && (!last || i > 0) && Number.isFinite(departure) && Math.abs(availableHours) > 1e-7;
+    const departureConflict = fixedSpeedDeparture && Number.isFinite(departure)
+      && seaDistance > 0 && (!(speed > 0) || seaDistance / speed > availableHours + 1e-7);
+    const badDuration = fixedTransitConflict || departureConflict
+      || block.some((l) => l.canal && !(l.canal.hours >= 0))
+      || (anchored && Number.isFinite(departure)
+        && (seaDistance > 0 ? !(availableHours > 0) : availableHours < -1e-7));
+    if (badDuration) errors.push(`Μη εφικτό χρονοδιάγραμμα έως το σκέλος ${i + 1}. Ελέγξτε τις ώρες και τη διάρκεια διέλευσης.`);
+
+    for (const l of block) {
+      l.departure = departure;
+      l.speed = l.canal ? NaN : speed;
+      l.hours = badDuration ? NaN : l.canal ? l.canal.hours
+        : l.dist === 0 ? 0 : speed > 0 && (anchored || S.speedMode === "speed") ? l.dist / speed : NaN;
+      l.arrival = departure + l.hours * HOUR;
+      l.waitHours = 0;
+      departure = l.arrival;
+    }
+    // Any remaining time in a canal-only block is time at the exit.
+    if (anchored && !badDuration && Number.isFinite(departure)) {
+      leg.waitHours = Math.max(0, ((Number.isFinite(leave) ? leave : target) - departure) / HOUR);
+      if (Number.isFinite(leave) && leave < target) {
+        errors.push(`Σκέλος ${i + 1}: η αναχώρηση προηγείται της άφιξης.`);
+      }
+      departure += leg.waitHours * HOUR;
+    }
+    leg.nextDeparture = departure;
+    blockStart = i + 1;
+  }
+  return errors;
+}
+
+function legScheduleText(leg) {
+  return `${utcText(leg.departure)} → ${utcText(leg.arrival)}`
+    + (Number.isFinite(leg.speed) ? ` · ${fmt(leg.speed, 2)} kn` : "")
+    + (leg.waitHours > 0 ? ` · αναμονή ${fmt(leg.waitHours, 1)} h έως ${utcText(leg.nextDeparture)}` : "");
+}
+
 /* ---------- Κεντρικός υπολογισμός ---------- */
 function compute() {
   // Ανά σκέλος: λιμένες, απόσταση, διώρυγα (αν υπάρχει)
@@ -133,7 +218,7 @@ function compute() {
     const to = PORTS[leg.toIdx] || PORTS[1];
     const canalRaw = legCanal(leg.fromIdx, leg.toIdx);
     const canal = canalRaw
-      ? { ...canalRaw, hours: canalRaw.key === "suez" ? S.suezHours : S.panamaHours }
+      ? { ...canalRaw, hours: Number.isFinite(optionalNumber(leg.transitOverride)) ? optionalNumber(leg.transitOverride) : canalRaw.key === "suez" ? S.suezHours : S.panamaHours }
       : null;
     let dist, src;
     if (leg.distMode === "manual") { dist = leg.manualDist; src = "manual"; }
@@ -142,41 +227,42 @@ function compute() {
     return { from, to, canal, dist, src, distMode: leg.distMode };
   });
 
-  const distance = legs.reduce((s, l) => s + l.dist, 0);
-  const transitHours = legs.reduce((s, l) => s + (l.canal ? l.canal.hours : 0), 0);
-  const canals = [...new Set(legs.filter((l) => l.canal).map((l) => l.canal.label))];
-  const from = legs.length ? legs[0].from : PORTS[0];
-  const to = legs.length ? legs[legs.length - 1].to : PORTS[1];
-  const gc = legs.reduce((s, l) => s + (l.src === "gc" ? l.dist / S.routingFactor : l.dist), 0);
-
+  const distance = legs.reduce((sum, l) => sum + l.dist, 0);
+  const from = legs[0]?.from || PORTS[0];
+  const to = legs.at(-1)?.to || PORTS[1];
+  const gc = legs.reduce((sum, l) => sum + (l.src === "gc" ? l.dist / S.routingFactor : l.dist), 0);
   const depEpoch = localToEpoch(S.depDate, S.depTime, S.depTz);
   const arrEpoch = localToEpoch(S.arrDate, S.arrTime, S.arrTz);
-
-  let speed, etaArrEpoch, hours, seaHours;
-  if (S.speedMode === "eta") {
-    hours = (arrEpoch - depEpoch) / 3600000;
-    seaHours = hours > 0 ? hours - transitHours : NaN;
-    speed = seaHours > 0 ? distance / seaHours : NaN;
-    etaArrEpoch = arrEpoch;
-  } else {
-    speed = S.serviceSpeed;
-    seaHours = distance / speed;
-    hours = transitHours + seaHours;
-    etaArrEpoch = depEpoch + hours * 3600 * 1000;
-  }
-
-  const cons = interpolate(S.consTable, speed);
+  const scheduleErrors = planLegs(legs, depEpoch, S.speedMode === "eta" ? arrEpoch : NaN);
+  const total = (select) => legs.reduce((sum, l, i) => sum + select(l, i), 0);
+  const transitHours = total((l) => l.canal?.hours ?? 0);
+  const waitHours = total((l) => l.waitHours);
+  const seaHours = total((l) => l.canal ? 0 : l.hours);
+  const seaDistance = total((l) => l.canal ? 0 : l.dist);
+  const canals = [...new Set(legs.filter((l) => l.canal).map((l) => l.canal.label))];
+  const hours = scheduleErrors.length ? NaN : total((l) => l.hours) + waitHours;
+  const etaArrEpoch = scheduleErrors.length ? NaN : legs.at(-1)?.nextDeparture;
+  const speed = scheduleErrors.length ? NaN
+    : seaHours > 0 ? seaDistance / seaHours : S.speedMode === "speed" ? S.serviceSpeed : NaN;
+  const cons = Number.isFinite(speed) ? interpolate(S.consTable, speed) : null;
   const days = hours / 24;
   const seaDays = seaHours / 24;
-
-  const lngM3Day = cons ? cons.lng : NaN;
-  const foTDay = cons ? cons.fo : NaN;
-  const mdoTDay = cons ? cons.mdo : NaN;
-
-  const lngM3 = lngM3Day * days;
+  const lngM3Day = cons?.lng ?? NaN;
+  const foTDay = cons?.fo ?? NaN;
+  const mdoTDay = cons?.mdo ?? NaN;
+  // Non-sailing periods use the adjacent sailing rate unless a dedicated rate is supplied.
+  const sailingSpeeds = legs.map((l) => l.speed);
+  const rates = legs.map((l, i) => {
+    const adjacentSpeed = Number.isFinite(l.speed) ? l.speed
+      : sailingSpeeds.slice(0, i).reverse().find(Number.isFinite)
+        ?? sailingSpeeds.slice(i + 1).find(Number.isFinite) ?? S.serviceSpeed;
+    const phase = S.legs[i].phase === "ballast" ? "ballast" : "laden";
+    const curve = S.phaseCurves?.[phase];
+    return interpolate(curve?.length ? curve : S.consTable, adjacentSpeed);
+  });
+  const phaseForecast = forecastPhases(legs, rates, S, hours);
+  const { lngM3, cargoUsed, foT, mdoT } = phaseForecast;
   const lngT = lngM3 * S.density;
-  const foT = foTDay * days;
-  const mdoT = mdoTDay * days;
 
   // FOE: 1 t LNG = CV_LNG / CV_FOE t FOE (kcal/kg)
   const foeFactor = S.cvLNG / S.cvFOE;
@@ -184,17 +270,25 @@ function compute() {
   const foeTotal = foeLNG + foT + mdoT;
 
   // Cool-down (δεξαμενές + γραμμή φόρτωσης)
-  const coolTotal = S.coolTanks + S.coolLine;
+  const coolTotal = (num(S.coolTanks) || 0) + (num(S.coolLine) || 0);
 
   // Απαιτούμενη ποσότητα με safety margin
-  const marginM3 = lngM3 * (S.marginPct / 100);
-  const requiredM3 = lngM3 + marginM3 + coolTotal;
+  const marginAmount = Math.max(0, num(S.marginAmount) || 0);
+  const marginPct = Math.max(0, num(S.marginPct) || 0);
+  const marginM3 = S.marginMode === "pct" && marginPct ? lngM3 * marginPct / 100
+    : S.marginMode === "lng" ? marginAmount : 0;
+  const marginFo = S.marginMode === "fo" ? marginAmount : 0;
+  const marginMdo = S.marginMode === "mdo" ? marginAmount : 0;
+  const marginText = S.marginMode === "fo" ? `${fmt(marginFo, 2)} t LSHFO`
+    : S.marginMode === "mdo" ? `${fmt(marginMdo, 2)} t LSMGO`
+    : `${fmt(marginM3, 2)} m³ LNG${S.marginMode === "pct" && marginPct ? ` (${marginPct}%)` : ""}`;
+  const requiredM3 = cargoUsed + marginM3 + coolTotal;
 
   // ROB άφιξης
-  const arrRobM3 = S.robLng - lngM3;                 // καθαρός υπολογισμός
+  const arrRobM3 = S.robLng - cargoUsed;                 // καθαρός υπολογισμός
   const arrRobM3Margin = S.robLng - requiredM3;      // με margin + cooldown
-  const arrFo = S.robFo - foT;
-  const arrMdo = S.robMdo - mdoT;
+  const arrFo = S.robFo - foT - marginFo;
+  const arrMdo = S.robMdo - mdoT - marginMdo;
 
   // Max intake: χρησιμοποιήσιμος χώρος − heel άφιξης (με margin)
   const usableM3 = S.capacity * (S.fillPct / 100);
@@ -203,13 +297,96 @@ function compute() {
   const maxIntakeT = maxIntakeM3 * S.density;
 
   return {
-    legs, from, to, gc, distance, transitHours, canals,
+    legs, from, to, gc, distance, transitHours, waitHours, scheduleErrors, canals, phaseForecast,
     depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
-    cons, lngM3Day, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
-    foeFactor, foeLNG, foeTotal, coolTotal, marginM3, requiredM3,
+    cons, rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
+    lngM3Day, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
+    foeFactor, foeLNG, foeTotal, coolTotal, marginM3, marginText, requiredM3,
     arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     usableM3, heelAtLoad, maxIntakeM3, maxIntakeT,
   };
+}
+
+/* ---------- Προαιρετική ανάλυση φορτίου, κόστους και εκπομπών ---------- */
+function analysisRows(r) {
+  const a = S.analysis;
+  const get = (key) => {
+    const value = optionalNumber(a[key]);
+    return value >= 0 ? value : NaN;
+  };
+  const rows = [];
+  const add = (label, value, unit, precision = 2) => {
+    if (Number.isFinite(value)) rows.push([label, `${fmt(value, precision)} ${unit}`]);
+  };
+  const loaded = get("loaded");
+  const heel = get("heel");
+  const days = r.days + (get("unloadDays") || 0);
+  const bogRate = get("bor") / 100;
+  const grossBog = bogRate <= 1 ? loaded * (1 - (1 - bogRate) ** days) : NaN;
+  const netBog = grossBog - Math.min(grossBog, get("reliq") || 0);
+  const lngUsed = r.lngM3;
+  const cargoLoss = Number.isFinite(netBog) ? Math.max(lngUsed, netBog) : r.phaseForecast.cargoUsed;
+  const delivered = loaded - cargoLoss - (heel || 0);
+  const energyFactor = S.density * S.cvLNG * 0.00396832072;
+  const loadedEnergy = loaded * energyFactor;
+  const deliveredEnergy = delivered >= 0 ? delivered * energyFactor : NaN;
+  const term = a.incoterm;
+  const saleEnergy = term === "fob" ? loadedEnergy : term === "dap" ? deliveredEnergy : NaN;
+
+  add("Εκφόρτωση / παραμονή", get("unloadDays"), "ημ");
+  if (Number.isFinite(get("unloadDays"))) add("Διάρκεια για ναύλωση / BOG", days, "ημ");
+  add("Φορτωμένη ενέργεια", loadedEnergy, "MMBtu", 0);
+  add("Εκτιμώμενο φυσικό BOG", grossBog, "m³ LNG");
+  add("BOG μετά από επαναϋγροποίηση", netBog, "m³ LNG");
+  add("Εκτιμώμενη παράδοση LNG", delivered >= 0 ? delivered : NaN, "m³");
+  add("Ενέργεια παράδοσης", deliveredEnergy, "MMBtu", 0);
+  add("Θερμική ενέργεια παράδοσης", deliveredEnergy * 0.00029307107, "GWh");
+  add("Εκτιμώμενη παραγωγή ηλεκτρικής ενέργειας", deliveredEnergy * 0.00029307107
+    * (get("powerEfficiency") <= 100 ? get("powerEfficiency") / 100 : NaN), "GWh");
+  add("Ενδεικτικό heel για επιστροφή", get("returnLng") + r.coolTotal, "m³ LNG");
+  if (term === "fob" || term === "dap") rows.push(["Εμπορικός όρος", term === "fob" ? "FOB" : "DES / DAP"]);
+  if (Number.isFinite(delivered) && delivered < 0) rows.push(["Ισοζύγιο φορτίου", "Ελέγξτε τη φορτωμένη ποσότητα, την κατανάλωση και το heel."]);
+  if (Number.isFinite(loaded) && loaded > r.usableM3) rows.push(["Φορτωμένη ποσότητα", "Υπερβαίνει τον χρησιμοποιήσιμο όγκο δεξαμενών."]);
+
+  const mdoCost = r.mdoT * get("mdoPrice");
+  const foCost = r.foT * get("foPrice");
+  const lngCost = r.lngT * get("lngFuelPrice");
+  const hire = days * get("hire");
+  const gas = loadedEnergy * get("gas");
+  const liquefaction = loadedEnergy * get("liquefaction");
+  const regas = deliveredEnergy * get("regas");
+  const revenue = saleEnergy * get("salePrice");
+  const costs = [
+    ["Κόστος LSMGO", mdoCost], ["Κόστος LSHFO", foCost], ["Κόστος LNG καυσίμου", lngCost],
+    ["Ναύλωση", hire], ["Αγορά φυσικού αερίου", gas], ["Υγροποίηση", liquefaction],
+    ["Επαναεριοποίηση", regas], ["Διόδια διωρύγων", get("canalFee")], ["Λιμενικά έξοδα", get("portFee")],
+    ["Χρέωση εκπομπών", get("carbonFee")],
+  ];
+  for (const [label, value] of costs) add(label, value, "USD");
+  const availableCosts = costs.map(([, value]) => value).filter(Number.isFinite);
+  const costTotal = availableCosts.reduce((sum, value) => sum + value, 0);
+  if (availableCosts.length) add("Σύνολο καταχωρισμένων εξόδων", costTotal, "USD");
+  add("Εκτιμώμενα έσοδα", revenue, "USD");
+  if (availableCosts.length) {
+    add("Έσοδα μείον καταχωρισμένα έξοδα", revenue - costTotal, "USD");
+    if (revenue > 0) add("Ποσοστό επί των εσόδων μετά τα καταχωρισμένα έξοδα", (revenue - costTotal) / revenue * 100, "%");
+  }
+
+  const emissions = [
+    ["CO₂ από LSMGO", r.mdoT * get("mdoCo2")],
+    ["CO₂ από LSHFO", r.foT * get("foCo2")],
+    ["CO₂ από LNG καυσίμου", r.lngT * get("lngCo2")],
+  ];
+  for (const [label, value] of emissions) add(label, value, "t CO₂");
+  const availableEmissions = emissions.map(([, value]) => value).filter(Number.isFinite);
+  if (availableEmissions.length) {
+    const total = availableEmissions.reduce((sum, value) => sum + value, 0);
+    add("CO₂ από καύσιμα με καταχωρισμένο συντελεστή", total, "t CO₂");
+    add("Ένταση για τους καταχωρισμένους συντελεστές", total * 1000 / deliveredEnergy, "kg CO₂/MMBtu", 4);
+  }
+  add("Εκπομπές από venting BOG", get("ventCo2e"), "t CO₂e");
+  add("Εκπομπές από methane slip", get("slipCo2e"), "t CO₂e");
+  return rows;
 }
 
 /* ---------- Αναζήτηση λιμένα ---------- */
@@ -322,8 +499,9 @@ function importJson(file) {
 /* ---------- Αναφορά HTML ---------- */
 function buildReport(r) {
   const row = (k, v) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`;
+  const optionalRows = analysisRows(r);
   const dt = (epoch, tz) => Number.isFinite(epoch)
-    ? new Date(epoch).toLocaleString("el-GR", { timeZone: "UTC" }) + ` (UTC${tz >= 0 ? "+" : ""}${tz})` : "—";
+    ? new Date(epoch + tz * HOUR).toLocaleString("el-GR", { timeZone: "UTC" }) + ` (UTC${tz >= 0 ? "+" : ""}${tz})` : "—";
   return `<!DOCTYPE html><html lang="el"><head><meta charset="utf-8">
 <title>Αναφορά Πλόου — ${r.from.name} → ${r.to.name}</title>
 <style>
@@ -341,7 +519,7 @@ th{background:#eee}
 <p>Συντάχθηκε: ${new Date().toLocaleString("el-GR")}</p>
 <h2>Σκέλη πλόου</h2><table>
 <tr><th>Σκέλος</th><th>Απόσταση</th></tr>
-${r.legs.map((l, i) => `<tr><td>${i + 1}. ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " + " + fmt(l.canal.hours, 0) + " h transit" : ""}</td></tr>`).join("")}
+${r.legs.map((l, i) => `<tr><td>${i + 1}. ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " · " + fmt(l.canal.hours, 1) + " h transit" : ""}<br>${legScheduleText(l)}</td></tr>`).join("")}
 <tr><td><strong>Σύνολο</strong></td><td class="num"><strong>${fmt(r.distance, 0)} nm</strong></td></tr>
 </table>
 <h2>Ταξίδι</h2><table>
@@ -365,11 +543,11 @@ ${row("Συνολικό FOE", fmt(r.foeTotal, 1) + " t")}
 <h2>Αποθέματα (ROB)</h2><table>
 ${row("LNG αναχώρησης", fmt(S.robLng, 0) + " m³ = " + fmt(S.robLng * S.density, 1) + " t")}
 ${row("LNG άφιξης (υπολογισμός)", fmt(r.arrRobM3, 0) + " m³ = " + fmt(r.arrRobM3 * S.density, 1) + " t")}
-${row("LNG άφιξης (με margin " + S.marginPct + "% + cool-down)", fmt(r.arrRobM3Margin, 0) + " m³ = " + fmt(r.arrRobM3Margin * S.density, 1) + " t")}
-${row("FO αναχώρησης / άφιξης", fmt(S.robFo, 1) + " / " + fmt(r.arrFo, 1) + " t")}
-${row("MDO αναχώρησης / άφιξης", fmt(S.robMdo, 1) + " / " + fmt(r.arrMdo, 1) + " t")}
+${row("LNG διαθέσιμο μετά από margin και cool-down", fmt(r.arrRobM3Margin, 0) + " m³ = " + fmt(r.arrRobM3Margin * S.density, 1) + " t")}
+${row("FO αναχώρησης / διαθέσιμο μετά το margin", fmt(S.robFo, 1) + " / " + fmt(r.arrFo, 1) + " t")}
+${row("MDO αναχώρησης / διαθέσιμο μετά το margin", fmt(S.robMdo, 1) + " / " + fmt(r.arrMdo, 1) + " t")}
 ${row("Cool-down δεξαμενές + γραμμή", fmt(r.coolTotal, 0) + " m³")}
-${row("Safety margin", fmt(r.marginM3, 0) + " m³ (" + S.marginPct + "%)")}
+${row("Safety margin", r.marginText)}
 ${row("Συνολική απαιτούμενη ποσότητα", fmt(r.requiredM3, 0) + " m³")}
 </table>
 <h2>Φόρτωση (Max Intake)</h2><table>
@@ -378,6 +556,7 @@ ${row("Χρησιμοποιήσιμος χώρος", fmt(r.usableM3, 0) + " m³"
 ${row("Heel άφιξης (με margin)", fmt(r.heelAtLoad, 0) + " m³")}
 ${row("MAX INTAKE", fmt(r.maxIntakeM3, 0) + " m³ = " + fmt(r.maxIntakeT, 0) + " t")}
 </table>
+${optionalRows.length ? `<h2>Ανάλυση φορτίου, κόστους και εκπομπών</h2><table>${optionalRows.map(([label, value]) => row(label, value)).join("")}</table>` : ""}
 <div class="sig"><div>Πλοίαρχος</div><div>Α' Μηχανικός</div><div>Ημ/νία</div></div>
 </body></html>`;
 }
@@ -476,7 +655,13 @@ function syncInputs() {
   $("density").value = S.density;
   $("capacity").value = S.capacity;
   $("fillPct").value = S.fillPct;
-  $("marginPct").value = S.marginPct;
+  $("marginMode").value = S.marginMode;
+  $("marginPct").value = S.marginPct ?? "";
+  $("marginAmount").value = S.marginAmount ?? "";
+  for (const key of ["idleLng", "idleFo", "idleMdo"]) $(key).value = S[key] ?? "";
+  document.querySelectorAll("[data-analysis]").forEach((input) => {
+    input.value = S.analysis[input.dataset.analysis] ?? "";
+  });
   $("coolTanks").value = S.coolTanks;
   $("coolLine").value = S.coolLine;
   $("cvLNG").value = S.cvLNG;
@@ -485,6 +670,7 @@ function syncInputs() {
   $("robFo").value = S.robFo;
   $("robMdo").value = S.robMdo;
   renderConsTable();
+  syncOperations();
 }
 
 /* ---------- Σκέλη πλόου (UI) ---------- */
@@ -493,6 +679,10 @@ function renderLegs() {
   box.innerHTML = S.legs
     .map((leg, i) => {
       const last = i === S.legs.length - 1;
+      const canal = legCanal(leg.fromIdx, leg.toIdx);
+      const next = S.legs[i + 1];
+      const nextCanal = next && legCanal(next.fromIdx, next.toIdx);
+      const dateValue = (value) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value ?? "") ? value : "";
       return `<div class="leg-row" data-leg="${i}">
         <div class="field">
           <label>Από</label>
@@ -514,10 +704,36 @@ function renderLegs() {
           <input type="number" data-legi="${i}" data-f="manualDist" step="1" min="0"
             value="${leg.manualDist}" ${leg.distMode === "gc" ? "disabled" : ""}>
         </div>
+        ${!canal ? `<label class="field leg-phase">Κατάσταση σκέλους
+          <select data-legi="${i}" data-f="phase">
+            <option value="laden" ${leg.phase !== "ballast" ? "selected" : ""}>Laden</option>
+            <option value="ballast" ${leg.phase === "ballast" ? "selected" : ""}>Ballast</option>
+          </select>
+        </label>` : ""}
         <div class="leg-meta">
           <span class="leg-dist" id="legDist${i}">—</span>
         </div>
         <button class="btn small danger leg-del" data-del-leg="${i}" aria-label="Διαγραφή σκέλους ${i + 1}">✕</button>
+        ${!last || canal ? `<details class="leg-timing" ${leg.stopArrival || leg.stopDeparture || leg.transitOverride ? "open" : ""}>
+          <summary>Χρονοδιάγραμμα σκέλους ${i + 1} (προαιρετικό)</summary>
+          <div class="grid-form">
+          ${!last ? `
+            <label class="field">Άφιξη ${canal ? "στην έξοδο της διώρυγας" : "στο τέλος του σκέλους"}
+              <input type="datetime-local" data-legi="${i}" data-f="stopArrival" value="${dateValue(leg.stopArrival)}">
+            </label>
+            <label class="field">${nextCanal ? "Έναρξη διέλευσης" : "Αναχώρηση για το επόμενο σκέλος"}
+              <input type="datetime-local" data-legi="${i}" data-f="stopDeparture" value="${dateValue(leg.stopDeparture)}">
+            </label>
+            <label class="field">Ζώνη ώρας σημείου
+              <select data-legi="${i}" data-f="stopTz">${tzOptions(leg.stopTz ?? portTz(leg.toIdx))}</select>
+            </label>` : ""}
+          ${canal ? `<label class="field">Χειροκίνητη διάρκεια διέλευσης (h)
+            <input type="number" min="0.1" step="any" data-legi="${i}" data-f="transitOverride"
+              value="${Number.isFinite(leg.transitOverride) ? leg.transitOverride : ""}">
+          </label>` : ""}
+          </div>
+        </details>` : ""}
+
       </div>`;
     })
     .join("");
@@ -532,11 +748,17 @@ function renderLegs() {
         if (f === "toIdx" && S.legs[i + 1]) S.legs[i + 1].fromIdx = S.legs[i].toIdx;
         if (f === "fromIdx" && S.legs[i - 1]) S.legs[i - 1].toIdx = S.legs[i].fromIdx;
       }
-      else if (f === "distMode") S.legs[i].distMode = el.value;
-      else S.legs[i].manualDist = num(el.value) || 0;
+      else if (f === "distMode" || f === "phase") S.legs[i][f] = el.value;
+      else if (f === "manualDist") S.legs[i].manualDist = num(el.value) || 0;
+      else {
+        S.legs[i][f] = f === "stopTz" ? num(el.value)
+          : f === "transitOverride" && el.value !== "" ? num(el.value) : el.value;
+        render();
+        return;
+      }
       // Η ζώνη ώρας αναχώρησης/άφιξης ακολουθεί τους ακραίους λιμένες
-      S.depTz = portTz(S.legs[0].fromIdx);
-      S.arrTz = portTz(S.legs[S.legs.length - 1].toIdx);
+      if (f === "fromIdx" && i === 0) S.depTz = portTz(S.legs[0].fromIdx);
+      if (f === "toIdx" && i === S.legs.length - 1) S.arrTz = portTz(S.legs[i].toIdx);
       $("depTz").innerHTML = tzOptions(S.depTz);
       $("arrTz").innerHTML = tzOptions(S.arrTz);
       renderLegs();
@@ -546,7 +768,17 @@ function renderLegs() {
   box.querySelectorAll("[data-del-leg]").forEach((b) =>
     b.addEventListener("click", () => {
       if (S.legs.length > 1) {
-        S.legs.splice(+b.dataset.delLeg, 1);
+        const i = +b.dataset.delLeg;
+        const [removed] = S.legs.splice(i, 1);
+        if (i > 0 && S.legs[i]) S.legs[i].fromIdx = S.legs[i - 1].toIdx;
+        if (i === 0 && removed.fromIdx !== S.legs[0].fromIdx) {
+          S.depTz = portTz(S.legs[0].fromIdx);
+          $("depTz").innerHTML = tzOptions(S.depTz);
+        }
+        if (i === S.legs.length) {
+          S.arrTz = portTz(S.legs.at(-1).toIdx);
+          $("arrTz").innerHTML = tzOptions(S.arrTz);
+        }
         renderLegs(); render();
       }
     })
@@ -573,7 +805,7 @@ function render() {
     if (el) {
       const canalTag = l.canal ? ` — ${l.canal.label} (transit ${fmt(l.canal.hours, 0)} h)` : "";
       const srcTag = l.src === "manual" ? "χειροκίνητη" : l.src === "canal" ? "canal" : "GC";
-      el.innerHTML = `${fmt(l.dist, 0)} nm <span class="src-tag">(${srcTag})</span>${canalTag}`;
+      el.innerHTML = `${fmt(l.dist, 0)} nm <span class="src-tag">(${srcTag})</span>${canalTag}<br>${legScheduleText(l)}`;
     }
   });
 
@@ -585,13 +817,14 @@ function render() {
     ? new Date(r.etaArrEpoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
   $("resDuration").textContent = bad(r.hours) ? "—" : `${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)`;
   $("resSpeed").textContent = bad(r.speed) ? "—" : fmt(r.speed, 2) + " knots";
-  const transitNote = r.transitHours > 0
-    ? `Περιλαμβάνονται ${fmt(r.transitHours, 0)} ώρες διέλευσης διώρυγας — πλεύσιμοι χρόνος ${fmt(r.seaHours, 1)} h (${fmt(r.seaDays, 2)} ημ)` : "";
+  const transitNote = r.transitHours > 0 || r.waitHours > 0
+    ? `Περιλαμβάνονται ${fmt(r.transitHours, 0)} h διέλευσης και ${fmt(r.waitHours, 1)} h αναμονής · πλεύσιμος χρόνος ${fmt(r.seaHours, 1)} h (${fmt(r.seaDays, 2)} ημ)` : "";
   $("resTransit").textContent = transitNote;
-  $("resTransit").style.display = r.transitHours > 0 ? "block" : "none";
-  $("resSpeedNote").textContent = r.speedMode === "eta"
-    ? "Υπολογισμένη για άφιξη στην καθορισμένη ημερομηνία/ώρα" + (r.transitHours > 0 ? ", με αφαίρεση ωρών διώρυγας" : "")
-    : "Καθορισμένη ταχύτητα λειτουργίας — η άφιξη υπολογίζεται";
+  $("resTransit").style.display = transitNote ? "block" : "none";
+  $("resSpeedNote").textContent = r.scheduleErrors.join(" ") || "Μέση ταχύτητα στη θάλασσα. Η ταχύτητα ανά σκέλος εμφανίζεται στη διαδρομή.";
+  $("marginPct").closest(".field").hidden = S.marginMode !== "pct";
+  $("marginAmount").closest(".field").hidden = !["lng", "fo", "mdo"].includes(S.marginMode);
+  $("marginAmountLabel").textContent = {lng: "Ποσότητα LNG (m³)", fo: "Ποσότητα LSHFO (t)", mdo: "Ποσότητα LSMGO (t)"}[S.marginMode] || "Ποσότητα";
 
   // Καταναλώσεις
   if (r.cons) {
@@ -599,7 +832,10 @@ function render() {
     $("consLngDay").textContent = `${fmt(r.lngM3Day, 0)} m³/ημ = ${fmt(r.lngM3Day * S.density, 1)} t/ημ`;
     $("consFoDay").textContent = `${fmt(r.foTDay, 2)} t/ημ`;
     $("consMdoDay").textContent = `${fmt(r.mdoTDay, 2)} t/ημ`;
-    $("consWarn").style.display = r.cons.extrapolated ? "block" : "none";
+    $("consWarn").style.display = r.rateOutsideTable ? "block" : "none";
+  } else {
+    for (const id of ["consAt", "consLngDay", "consFoDay", "consMdoDay"]) $(id).textContent = "—";
+    $("consWarn").style.display = "none";
   }
 
   // Συνολικά ταξιδίου
@@ -621,7 +857,7 @@ function render() {
   $("arrMdoOut").textContent = bad(r.arrMdo) ? "—" : `${fmt(r.arrMdo, 1)} t`;
   $("arrMdoOut").classList.toggle("bad", r.arrMdo < 0);
   $("coolOut").textContent = `${fmt(r.coolTotal, 0)} m³ = ${fmt(r.coolTotal * S.density, 1)} t`;
-  $("marginOut").textContent = bad(r.marginM3) ? "—" : `${fmt(r.marginM3, 0)} m³ (${S.marginPct}%)`;
+  $("marginOut").textContent = r.marginText;
   $("reqOut").textContent = bad(r.requiredM3) ? "—" : `${fmt(r.requiredM3, 0)} m³ = ${fmt(r.requiredM3 * S.density, 1)} t`;
 
   // Max intake
@@ -637,10 +873,10 @@ function render() {
   $("fullSummary").innerHTML = `
     <thead><tr><th colspan="2">Ταξίδι</th></tr></thead><tbody>
     <tr><td>Πλοήγηση</td><td class="num">${r.from.name} → ${r.to.name}${r.canals.length ? " via " + r.canals.join(" + ") : ""}</td></tr>
-    ${r.legs.map((l, i) => `<tr><td>Σκέλος ${i + 1}: ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " + " + fmt(l.canal.hours, 0) + " h transit" : ""}</td></tr>`).join("")}
+    ${r.legs.map((l, i) => `<tr><td>Σκέλος ${i + 1}: ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " · " + fmt(l.canal.hours, 1) + " h transit" : ""}<br>${legScheduleText(l)}</td></tr>`).join("")}
     <tr><td>Συνολική απόσταση πλόου</td><td class="num">${fmt(r.distance, 0)} nm</td></tr>
     <tr><td>Αναχώρηση (τοπική / UTC)</td><td class="num">${S.depDate} ${S.depTime} (UTC${S.depTz >= 0 ? "+" : ""}${S.depTz}) — ${dt(r.depEpoch)}</td></tr>
-    <tr><td>Άφιξη (τοπική / UTC)</td><td class="num">${S.arrDate} ${S.arrTime} (UTC${S.arrTz >= 0 ? "+" : ""}${S.arrTz}) — ${dt(r.etaArrEpoch)}</td></tr>
+    <tr><td>Άφιξη (τοπική / UTC)</td><td class="num">${Number.isFinite(r.etaArrEpoch) ? new Date(r.etaArrEpoch + S.arrTz * HOUR).toLocaleString("el-GR", {timeZone: "UTC"}) + ` (UTC${S.arrTz >= 0 ? "+" : ""}${S.arrTz})` : "—"} — ${dt(r.etaArrEpoch)}</td></tr>
     <tr><td>Διάρκεια${r.transitHours > 0 ? " (πλεύσιμος χρόνος " + fmt(r.seaHours, 1) + " h)" : ""}</td><td class="num">${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)</td></tr>
     <tr><td>Ταχύτητα</td><td class="num">${fmt(r.speed, 2)} kn</td></tr>
     </tbody>
@@ -654,8 +890,9 @@ function render() {
     <thead><tr><th colspan="2">Αποθέματα (ROB)</th></tr></thead><tbody>
     <tr><td>LNG αναχώρησης</td><td class="num">${fmt(S.robLng, 0)} m³ = ${fmt(S.robLng * S.density, 1)} t</td></tr>
     <tr><td>LNG άφιξης (υπολογισμός)</td><td class="num">${fmt(r.arrRobM3, 0)} m³ = ${fmt(r.arrRobM3 * S.density, 1)} t</td></tr>
-    <tr><td>LNG άφιξης (με margin ${S.marginPct}% + cool-down)</td><td class="num">${fmt(r.arrRobM3Margin, 0)} m³ = ${fmt(r.arrRobM3Margin * S.density, 1)} t</td></tr>
-    <tr><td>FO / MDO άφιξης</td><td class="num">${fmt(r.arrFo, 1)} t / ${fmt(r.arrMdo, 1)} t</td></tr>
+    <tr><td>LNG διαθέσιμο μετά από margin και cool-down</td><td class="num">${fmt(r.arrRobM3Margin, 0)} m³ = ${fmt(r.arrRobM3Margin * S.density, 1)} t</td></tr>
+    <tr><td>FO / MDO διαθέσιμα μετά το margin</td><td class="num">${fmt(r.arrFo, 1)} t / ${fmt(r.arrMdo, 1)} t</td></tr>
+    <tr><td>Safety margin</td><td class="num">${r.marginText}</td></tr>
     <tr><td>Συνολική απαιτούμενη ποσότητα LNG</td><td class="num">${fmt(r.requiredM3, 0)} m³</td></tr>
     </tbody>
     <thead><tr><th colspan="2">Φόρτωση</th></tr></thead><tbody>
@@ -664,13 +901,21 @@ function render() {
     <tr><td><strong>MAX INTAKE</strong></td><td class="num"><strong>${fmt(r.maxIntakeM3, 0)} m³ = ${fmt(r.maxIntakeT, 0)} t</strong></td></tr>
     </tbody>`;
 
+  const optionalRows = analysisRows(r);
+  $("analysisResults").hidden = optionalRows.length === 0;
+  $("analysisResults").querySelector("tbody").innerHTML = optionalRows
+    .map(([label, value]) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`).join("");
+
   // FOE panel
   $("foeFactorOut").textContent = fmt(r.foeFactor, 3);
   $("foeLngOut").textContent = bad(r.foeLNG) ? "—" : fmt(r.foeLNG, 1) + " t";
   $("foeAllOut").textContent = bad(r.foeTotal) ? "—" : fmt(r.foeTotal, 1) + " t";
 
   // Προειδοποιήσεις
-  const warns = [];
+  const warns = [...r.scheduleErrors];
+  if (r.phaseForecast.rows.some((row) => row.exceedsForcing)) {
+    warns.push("Η ζήτηση forced vaporization υπερβαίνει το δηλωμένο όριο σε τουλάχιστον μία φάση.");
+  }
   if (Number.isFinite(r.arrRobM3Margin) && r.arrRobM3Margin < 0)
     warns.push("Το LNG ROB αναχώρησης δεν επαρκεί για το ταξίδι με το τρέχον margin — αυξήστε το ROB ή μειώστε ταχύτητα.");
   if (Number.isFinite(r.arrFo) && r.arrFo < 0)
@@ -679,8 +924,8 @@ function render() {
     warns.push("Ανεπαρκές MDO ROB για τον πλόο.");
   if (Number.isFinite(r.maxIntakeM3) && r.maxIntakeM3 < 0)
     warns.push("Μη ρεαλιστικό max intake — ελέγξτε heel/χωρητικότητα.");
-  if (r.cons && r.cons.extrapolated)
-    warns.push("Η ταχύτητα είναι εκτός εύρους του πίνακα καταναλώσεων — οι τιμές είναι εκτίμηση (extrapolation).");
+  if (r.rateOutsideTable)
+    warns.push("Τουλάχιστον μία ταχύτητα σκέλους είναι εκτός εύρους του πίνακα καταναλώσεων — οι τιμές είναι εκτίμηση (extrapolation).");
   $("warnings").innerHTML = warns.length
     ? warns.map((w) => `<div class="alert error">${w}</div>`).join("")
     : "";
@@ -689,6 +934,9 @@ function render() {
       ? '<div class="alert ok">Όλες οι ποσότητες επαρκείς για τον πλόο με βάση τα τρέχοντα δεδομένα.</div>'
       : "";
   }
+  renderPhaseForecast(r);
+  renderOperationsControls();
+  runScenarios();
 }
 
 /* ---------- Tabs ---------- */
@@ -726,6 +974,8 @@ function init() {
   $("addLeg").addEventListener("click", () => {
     const last = S.legs[S.legs.length - 1];
     S.legs.push({ fromIdx: last.toIdx, toIdx: 35, distMode: "gc", manualDist: 1000 });
+    S.arrTz = portTz(35);
+    $("arrTz").innerHTML = tzOptions(S.arrTz);
     renderLegs(); render();
   });
 
@@ -772,7 +1022,16 @@ function init() {
   bind("density", "density");
   bind("capacity", "capacity");
   bind("fillPct", "fillPct");
-  bind("marginPct", "marginPct");
+  bind("marginMode", "marginMode", (v) => v);
+  bind("marginPct", "marginPct", (v) => v);
+  bind("marginAmount", "marginAmount", (v) => v);
+  for (const key of ["idleLng", "idleFo", "idleMdo"]) bind(key, key, (v) => v);
+  document.querySelectorAll("[data-analysis]").forEach((input) =>
+    input.addEventListener("change", () => {
+      S.analysis[input.dataset.analysis] = input.value;
+      render();
+    })
+  );
   bind("coolTanks", "coolTanks");
   bind("coolLine", "coolLine");
   bind("cvLNG", "cvLNG");
