@@ -18,7 +18,7 @@ const scenarioIds = ["opsDelayA", "opsDelayB", "opsDelayC", "opsMax", "opsOpen",
 const dischargeIds = ["discStart", "discLoaded", "discVolume", "discHeel", "discRate", "discUp", "discDown",
   "discStripVolume", "discStripTime", "discLoss"];
 const profileKeys = ["density", "capacity", "fillPct", "coolTanks", "coolLine", "cvLNG", "cvFOE",
-  "consTable", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
+  "consTable", "charterParty", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
 
 function opsState() {
   if (!S.ops || typeof S.ops !== "object") S.ops = {};
@@ -63,13 +63,18 @@ function forecastPhases(legs, rates, state, hours) {
 
   legs.forEach((leg, i) => {
     const phase = leg.canal ? "canal" : state.legs[i].phase === "ballast" ? "ballast" : "laden";
-    const sailing = rates[i] || {};
+    const seaRate = rates[i] || {};
     const waits = { lng: state.idleLng, fo: state.idleFo, mdo: state.idleMdo };
     for (const [kind, time] of [[phase, leg.hours], ["wait", leg.waitHours]]) {
       if (time <= 0) continue;
       const days = time / 24;
       const setup = model[kind] || {};
+      const sailing = kind === "wait" && seaRate.charter ? seaRate.manual || {} : seaRate;
+      const port = kind === "wait" && !leg.canal && typeof charterPortRate === "function" ? charterPortRate(state, i) : null;
+      const winter = typeof charterWinter === "function" ? charterWinter(state, leg.canal ? "canal" : kind) : 0;
       const rate = (fuel) => {
+        if (port) return port[fuel];
+        if (sailing.charter) return sailing[fuel];
         const override = opsNumber(setup[fuel]);
         const idle = kind === "wait" ? opsNumber(waits[fuel]) : NaN;
         return Number.isFinite(override) ? override : Number.isFinite(idle) ? idle : sailing[fuel] ?? NaN;
@@ -85,13 +90,14 @@ function forecastPhases(legs, rates, state, hours) {
       rob -= loss;
       lngM3 += demand;
       cargoUsed += loss;
-      const mass = demand * (sailing.density ?? state.density);
+      const mass = demand * (port?.density ?? sailing.density ?? state.density);
       const fuelOil = rate("fo") * days;
-      const diesel = rate("mdo") * days;
+      const diesel = (rate("mdo") + winter) * days;
       lngT += mass;
       foT += fuelOil;
       mdoT += diesel;
       rows.push({ leg: i + 1, kind, time, demand, lngT: mass, foT: fuelOil, mdoT: diesel, natural, forced, recovered, loss, rob,
+        charter: Boolean(sailing.charter || port || winter),
         bogEnabled: Number.isFinite(bor),
         exceedsForcing: Number.isFinite(forcingLimit) && forced > forcingLimit * days + 1e-7 });
     }
@@ -437,7 +443,18 @@ function selectedProfile() {
 function loadProfile() {
   const profile = selectedProfile();
   if (!profile) return;
+  applyVesselProfile(profile);
+}
+
+function applyVesselProfile(profile) {
   const { data } = profile;
+  if (data.charterParty && !data.consTable) {
+    S.charterParty = opsClone(data.charterParty);
+    $("opsProfileName").value = profile.name;
+    render();
+    $("opsProfileStatus").textContent = `Εφαρμόστηκε το προφίλ «${profile.name}».`;
+    return;
+  }
   for (const key of profileKeys) {
     if (Object.hasOwn(data, key)) S[key] = opsClone(data[key]);
   }
@@ -451,9 +468,9 @@ function loadProfile() {
   $("opsProfileStatus").textContent = `Εφαρμόστηκε το προφίλ «${profile.name}».`;
 }
 
-function importProfile(file) {
+function importProfile(file, { activateCharter = false } = {}) {
   if (!file) return;
-  file.text().then((text) => {
+  return file.text().then((text) => {
     const { kind, name, data } = JSON.parse(text);
     const validTable = (table) => Array.isArray(table) && table.every((row) => row
       && Number.isFinite(row.speed) && row.speed > 0
@@ -461,13 +478,22 @@ function importProfile(file) {
       && (row.lngInput == null || Number.isFinite(row.lngInput) && row.lngInput >= 0)
       && (row.lngUnit == null || ["m3", "t", "foe"].includes(row.lngUnit))
       && (row.density == null || Number.isFinite(row.density) && row.density > 0));
+    const charter = typeof validCharterParty === "function" && validCharterParty(data?.charterParty);
     if (kind !== "voyagecalc-vessel-profile" || typeof name !== "string" || !name.trim() || !data
-        || !validTable(data.consTable)
+        || (activateCharter && !charter) || (data.charterParty && !charter)
+        || (data.consTable ? !validTable(data.consTable) : !charter)
         || ["laden", "ballast"].some((phase) => data.phaseCurves?.[phase] && !validTable(data.phaseCurves[phase]))) {
       throw new Error("Invalid profile");
     }
-    persistProfile(name.trim().slice(0, 80), data);
-  }).catch(() => { $("opsProfileStatus").textContent = "Μη έγκυρο αρχείο προφίλ."; });
+    const profile = { name: name.trim().slice(0, 80), data };
+    persistProfile(profile.name, profile.data);
+    if (activateCharter) {
+      applyVesselProfile(profile);
+      $("cpProfileState").textContent = "Το ιδιωτικό προφίλ εισήχθη και εφαρμόστηκε στο ταξίδι.";
+    }
+  }).catch(() => {
+    $(activateCharter ? "cpProfileState" : "opsProfileStatus").textContent = "Μη έγκυρο αρχείο προφίλ.";
+  });
 }
 
 function dischargeState() {

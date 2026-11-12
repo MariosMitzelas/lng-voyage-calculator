@@ -266,7 +266,9 @@ function compute() {
         ?? sailingSpeeds.slice(i + 1).find(Number.isFinite) ?? S.serviceSpeed;
     const phase = S.legs[i].phase === "ballast" ? "ballast" : "laden";
     const curve = S.phaseCurves?.[phase];
-    return interpolate(curve?.length ? curve : S.consTable, adjacentSpeed);
+    const manual = interpolate(curve?.length ? curve : S.consTable, adjacentSpeed);
+    const charter = !l.canal && typeof charterSeaRate === "function" ? charterSeaRate(S, phase, adjacentSpeed) : null;
+    return charter ? { ...charter, manual } : manual;
   });
   const phaseForecast = forecastPhases(legs, rates, S, hours);
   const { lngM3, lngT, cargoUsed, foT, mdoT } = phaseForecast;
@@ -278,9 +280,11 @@ function compute() {
   const mdoTDay = perDay("mdoT");
 
   // FOE: 1 t LNG = CV_LNG / CV_FOE t FOE (kcal/kg)
-  const foeFactor = S.cvLNG / S.cvFOE;
-  const foeLNG = lngT * foeFactor;
-  const foeTotal = foeLNG + foT + mdoT;
+  const charterEquivalent = typeof charterFoe === "function" ? charterFoe(S.charterParty, phaseForecast) : null;
+  const foeFactor = charterEquivalent?.factor ?? S.cvLNG / S.cvFOE;
+  const foeLNG = charterEquivalent?.lng ?? lngT * foeFactor;
+  const foeTotal = charterEquivalent?.total ?? foeLNG + foT + mdoT;
+  const lngFoeDay = (charterEquivalent?.fixed ? lngM3Day : lngTDay) * foeFactor;
 
   // Cool-down (δεξαμενές + γραμμή φόρτωσης)
   const coolTotal = (num(S.coolTanks) || 0) + (num(S.coolLine) || 0);
@@ -314,7 +318,7 @@ function compute() {
     depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
     rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
-    foeFactor, foeLNG, foeTotal, coolTotal, marginM3, marginText, requiredM3,
+    foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, marginM3, marginText, requiredM3,
     arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     usableM3, heelAtLoad, maxIntakeM3, maxIntakeT,
   };
@@ -880,14 +884,14 @@ function render() {
   if ($("consPerLeg")) $("consPerLeg").innerHTML = tableHtml(
     ["Σκέλος", "Φάση", "kn", "Ώρες", "LNG m³", "LNG t", "LNG t FOE", "LSHFO t", "MDO t"],
     r.phaseForecast.rows.map(row => [row.leg, phaseNames[row.kind], ["laden", "ballast"].includes(row.kind) ? fmt(r.legs[row.leg - 1].speed, 2) : "—",
-      fmt(row.time, 2), fmt(row.demand, 2), fmt(row.lngT, 2), fmt(row.lngT * r.foeFactor, 2), fmt(row.foT, 2), fmt(row.mdoT, 2)])
+      fmt(row.time, 2), fmt(row.demand, 2), fmt(row.lngT, 2), fmt((r.charterEquivalent?.fixed ? row.demand : row.lngT) * r.foeFactor, 2), fmt(row.foT, 2), fmt(row.mdoT, 2)])
   );
   if (Number.isFinite(r.lngM3Day)) {
     $("consAt").textContent = `Μέση ημερήσια στην πλεύση · ${fmt(r.speed, 2)} kn`;
     $("consLngDay").textContent = `${fmt(r.lngM3Day, 0)} m³/ημ = ${fmt(r.lngTDay, 1)} t/ημ`;
     $("consFoDay").textContent = `${fmt(r.foTDay, 2)} t/ημ`;
     $("consMdoDay").textContent = `${fmt(r.mdoTDay, 2)} t/ημ`;
-    if ($("consFoeDay")) $("consFoeDay").textContent = `${fmt(r.lngTDay * r.foeFactor, 2)} t FOE/ημ`;
+    if ($("consFoeDay")) $("consFoeDay").textContent = `${fmt(r.lngFoeDay, 2)} t FOE/ημ`;
   } else {
     for (const id of ["consAt", "consLngDay", "consFoeDay", "consFoDay", "consMdoDay"]) {
       if ($(id)) $(id).textContent = "—";
@@ -964,6 +968,8 @@ function render() {
 
   // FOE panel
   $("foeFactorOut").textContent = fmt(r.foeFactor, 3);
+  if ($("foeFactorUnit")) $("foeFactorUnit").textContent = r.charterEquivalent?.fixed ? "t FOE ανά m³ LNG · συμβατικός"
+    : r.charterEquivalent ? "t LSGO-eq ανά t LNG · LHV Charter Party" : "t FOE ανά t LNG";
   $("foeLngOut").textContent = bad(r.foeLNG) ? "—" : fmt(r.foeLNG, 1) + " t";
   $("foeAllOut").textContent = bad(r.foeTotal) ? "—" : fmt(r.foeTotal, 1) + " t";
 
@@ -991,6 +997,7 @@ function render() {
       : "";
   }
   renderPhaseForecast(r);
+  if (typeof renderCharterParty === "function") renderCharterParty(r);
   renderOperationsControls();
   runScenarios();
 }
