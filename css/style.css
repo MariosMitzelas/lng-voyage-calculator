@@ -403,3 +403,23 @@ fieldset legend {
   .card, .result-box, .data-table th, .data-table td { border-color: #bbb; background: #fff; color: #000; }
   .summary-bar { position: static; background: #fff; }
 }
+
+[hidden] { display: none !important; }
+.leg-timing { grid-column: 1 / -1; }
+.leg-timing .grid-form, .optional-analysis .grid-form { margin-top: var(--space-3); }
+details > summary { cursor: pointer; }
+.ops-fields, .ops-actions { margin-block: var(--space-4); }
+.ops-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.field textarea {
+  width: 100%; border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  background: var(--surface-2); color: var(--text); padding: var(--space-3); font: inherit; resize: vertical;
+}
+#panel-ops .data-table input, #panel-discharge .data-table input {
+  width: 7em; background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: var(--space-2);
+}
+#opsTable, #opsPhaseInputs, #discTanks { min-width: max-content; }
+.leg-phase { grid-column: 1 / 3; grid-row: 2; }
+@media (max-width: 900px) {
+  .leg-phase { grid-column: 1 / -1; grid-row: auto; }
+}
