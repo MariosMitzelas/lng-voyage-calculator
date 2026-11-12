@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "voyagecalc-shell-v4";
+const CACHE = "voyagecalc-shell-v5";
 const SHELL = ["./", "./index.html", "./css/style.css", "./js/ports.js", "./js/app.js", "./js/operations.js", "./js/transfer.js", "./js/ramp.js"];
 const shellUrls = new Set(SHELL.map((path) => new URL(path, self.registration.scope).href));
 

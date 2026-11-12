@@ -57,7 +57,7 @@
 
       <div class="card">
         <h2><span class="step">1</span>Σκέλη πλόου</h2>
-        <p class="hint">Πρόσθεσε ένα σκέλος για κάθε τμήμα του πλόου. Για διώρυγα επίλεξε Port Said ↔ Suez ή Cristóbal ↔ Balboa ως ξεχωριστό σκέλος. Οι προεπιλεγμένες ώρες διέλευσης αλλάζουν παρακάτω.</p>
+        <p class="hint">Πρόσθεσε ένα σκέλος για κάθε τμήμα του πλόου. Άνοιξε το Χρονοδιάγραμμα σκέλους για επιθυμητή ταχύτητα και τοπική ώρα άφιξης και αναχώρησης. Η αναχώρηση από τον τελικό προορισμό εμφανίζεται στο πλάνο και η παραμονή εκεί είναι μετά το ETA. Για διώρυγα επίλεξε Port Said ↔ Suez ή Cristóbal ↔ Balboa ως ξεχωριστό σκέλος. Οι προεπιλεγμένες ώρες διέλευσης αλλάζουν παρακάτω.</p>
         <div id="legsList" data-testid="list-legs"></div>
         <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
           <button class="btn small" id="addLeg" data-testid="button-add-leg">+ Προσθήκη σκέλους</button>
@@ -146,13 +146,16 @@
 
       <div class="card">
         <h2><span class="step">1</span>Πίνακας καταναλώσεων πλοίου</h2>
-        <p class="hint">Καταχωρίστε τις τιμές του πλοίου σας (από το fuel / performance report ή το noon report table): κατανάλωση ανά ταχύτητα σε LNG (m³/ημέρα), Fuel Oil (t/ημέρα) και Diesel (t/ημέρα). Ο υπολογισμός γίνεται με γραμμική παρεμβολή.</p>
+        <p class="hint">Σε κάθε ταχύτητα μπορείς να γράψεις το LNG σε m³, μετρικούς τόνους ή τόνους FOE ανά ημέρα. Η τελευταία τιμή που αλλάζεις ορίζει τη βάση της σειράς και τα άλλα πεδία συμπληρώνονται αυτόματα. Κενή πυκνότητα χρησιμοποιεί την τιμή από LNG &amp; Bunkers, όπου ρυθμίζονται και οι θερμογόνες δυνάμεις.</p>
         <div class="table-wrap">
           <table class="data-table">
             <thead>
               <tr>
                 <th>Ταχύτητα (kn)</th>
                 <th class="num">LNG (m³/ημ)</th>
+                <th class="num">LNG (t/ημ)</th>
+                <th class="num">LNG (t FOE/ημ)</th>
+                <th class="num">Density (t/m³)</th>
                 <th class="num">Fuel Oil (t/ημ)</th>
                 <th class="num">MDO (t/ημ)</th>
                 <th class="sr-only">Ενέργειες</th>
@@ -164,7 +167,7 @@
         <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
           <button class="btn small" id="addRow" data-testid="button-add-row">+ Προσθήκη σειράς</button>
         </div>
-        <div class="alert" style="display:none" id="consWarn">Η ταχύτητα είναι εκτός εύρους του πίνακα — η τιμή είναι εκτίμηση (extrapolation).</div>
+        <div class="alert" style="display:none" id="consWarn">Τουλάχιστον ένα σκέλος έχει ταχύτητα εκτός καμπύλης. Χρησιμοποιείται η τιμή στο πλησιέστερο άκρο.</div>
       </div>
 
       <div class="card">
@@ -192,12 +195,18 @@
       </div>
 
       <div class="card">
-        <h2>Κατανάλωση στη ταχύτητα πλόου</h2>
+        <h2>Μέση ημερήσια κατανάλωση στην πλεύση</h2>
         <div class="result-grid">
           <div class="result-box hero"><div class="r-label" id="consAt">—</div><div class="r-value" style="font-size:var(--text-base)" id="consLngDay" data-testid="text-cons-lng">—</div><div class="r-sub">LNG (m³ &amp; t ανά ημέρα)</div></div>
+          <div class="result-box"><div class="r-label">FOE LNG</div><div class="r-value" id="consFoeDay">—</div></div>
           <div class="result-box"><div class="r-label">Fuel Oil</div><div class="r-value" id="consFoDay" data-testid="text-cons-fo">—</div><div class="r-sub">ανά ημέρα</div></div>
           <div class="result-box"><div class="r-label">Diesel (MDO)</div><div class="r-value" id="consMdoDay" data-testid="text-cons-mdo">—</div><div class="r-sub">ανά ημέρα</div></div>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Κατανάλωση ανά σκέλος και φάση</h2>
+        <div class="table-wrap"><table class="data-table" id="consPerLeg"></table></div>
       </div>
 
     </section>
