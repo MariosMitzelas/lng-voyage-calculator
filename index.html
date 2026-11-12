@@ -261,13 +261,19 @@
           <legend>Δεξαμενές φορτίου</legend>
           <div class="field">
             <label for="capacity">Συνολική χωρητικότητα (m³)</label>
-            <input type="number" id="capacity" step="100" min="1000" value="174000">
+            <input type="number" id="capacity" step="any" min="1000" value="174000">
           </div>
           <div class="field">
             <label for="fillPct">Μέγιστο γέμισμα (%)</label>
             <input type="number" id="fillPct" step="0.1" min="90" max="100" value="98.5">
           </div>
         </fieldset>
+        <details id="cargoCalibration" hidden>
+          <summary><strong>Figures και στάθμες Cargo Tanks</strong></summary>
+          <p id="cargoCalibrationFill" class="hint"></p>
+          <p class="hint">Το 100% και τα όρια του πλάνου βασίζονται στη χωρητικότητα χωρίς expansion hatch. Οι στάθμες είναι σημεία αναφοράς της σελίδας. Για χαμηλή στάθμη, heel ή διορθώσεις trim/list εισάγεται ο αντίστοιχος αναλυτικός πίνακας.</p>
+          <div class="table-wrap"><table class="data-table" id="cargoCalibrationTable"></table></div>
+        </details>
         <fieldset>
           <legend>Safety margin &amp; Cool-down</legend>
           <label class="field">Μονάδα safety margin
@@ -530,7 +536,7 @@
             </div>
             <label class="field">Calibration διορθωμένο για το σενάριο — Tank ID, στάθμη m, όγκος m³
               <textarea data-ramp="levels" rows="3" placeholder="T1,0.5,900&#10;T1,1.0,1800"></textarea></label>
-            <p class="hint">Στο snapshot βάλε τα τρέχοντα ROB στις Δεξαμενές και τις αντλίες που τρέχουν. Για πλήρες πλάνο βάλε τα ROB στην έναρξη της εκφόρτωσης. Το calibration εισάγεται ανά tank με αύξουσες τιμές και με το κατάλληλο datum, trim και list.</p>
+            <p class="hint">Στο snapshot βάλε τα τρέχοντα ROB στις Δεξαμενές και τις αντλίες που τρέχουν. Για πλήρες πλάνο βάλε τα ROB στην έναρξη της εκφόρτωσης. Το αναλυτικό calibration εισάγεται ανά tank με αύξουσες τιμές και με το κατάλληλο datum, trim και list. Για κάθε tank που συμπληρώνεις εδώ, χρησιμοποιούνται αυτά τα σημεία αντί της σελίδας αναφοράς του προφίλ.</p>
           </div>
           <label class="field">Rate-down / pump-stop notice (min)<input type="number" min="0" step="any" data-ramp="notice"></label>
           <button class="btn primary" type="button" id="rampCalculate">Υπολογισμός</button>
@@ -613,6 +619,7 @@
   <script src="js/app.js"></script>
   <script src="js/operations.js"></script>
   <script src="js/charter.js"></script>
+  <script src="js/calibration.js"></script>
   <script src="js/transfer.js"></script>
   <script src="js/ramp.js"></script>
 </body>
