@@ -572,6 +572,7 @@ function syncOperations() {
   renderTanks();
   runDischarge();
   renderProfiles();
+  syncTransferPlanner();
 }
 
 function initOperations() {
