@@ -18,7 +18,7 @@ const scenarioIds = ["opsDelayA", "opsDelayB", "opsDelayC", "opsMax", "opsOpen",
 const dischargeIds = ["discStart", "discLoaded", "discVolume", "discHeel", "discRate", "discUp", "discDown",
   "discStripVolume", "discStripTime", "discLoss"];
 const profileKeys = ["density", "capacity", "fillPct", "coolTanks", "coolLine", "cvLNG", "cvFOE",
-  "consTable", "charterParty", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
+  "consTable", "charterParty", "cargoCalibration", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
 
 function opsState() {
   if (!S.ops || typeof S.ops !== "object") S.ops = {};
@@ -451,12 +451,20 @@ function applyVesselProfile(profile) {
   if (data.charterParty && !data.consTable) {
     S.charterParty = opsClone(data.charterParty);
     $("opsProfileName").value = profile.name;
+    if (data.cargoCalibration && typeof installCargoCalibration === "function") {
+      installCargoCalibration(data.cargoCalibration);
+      syncInputs();
+    }
     render();
     $("opsProfileStatus").textContent = `Εφαρμόστηκε το προφίλ «${profile.name}».`;
     return;
   }
   for (const key of profileKeys) {
     if (Object.hasOwn(data, key)) S[key] = opsClone(data[key]);
+  }
+  if (typeof installCargoCalibration === "function") {
+    if (data.cargoCalibration) installCargoCalibration(data.cargoCalibration);
+    else delete S.cargoCalibration;
   }
   S.phaseCurves = opsClone(data.phaseCurves || {});
   S.phaseModel = opsClone(data.phaseModel || {});
@@ -481,6 +489,7 @@ function importProfile(file, { activateCharter = false } = {}) {
     const charter = typeof validCharterParty === "function" && validCharterParty(data?.charterParty);
     if (kind !== "voyagecalc-vessel-profile" || typeof name !== "string" || !name.trim() || !data
         || (activateCharter && !charter) || (data.charterParty && !charter)
+        || (data.cargoCalibration && (typeof validCargoCalibration !== "function" || !validCargoCalibration(data.cargoCalibration)))
         || (data.consTable ? !validTable(data.consTable) : !charter)
         || ["laden", "ballast"].some((phase) => data.phaseCurves?.[phase] && !validTable(data.phaseCurves[phase]))) {
       throw new Error("Invalid profile");

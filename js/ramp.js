@@ -1,5 +1,6 @@
 "use strict";
 
+const rampTankName = id => typeof cargoTankLabel === "function" ? cargoTankLabel(id) : id;
 const rampTolerance = 1e-7;
 const rampNumber = (value, label, min = 0) => {
   const number = txNum(value);
@@ -21,7 +22,8 @@ function rampIndex(rows, label) {
   return index;
 }
 
-function rampModel(plan, config, requireTargets = true) {
+function rampModel(plan, config, requireTargets = true, mode = S.transfer?.mode ?? "loading") {
+  if (typeof calibratedTransferPlan === "function") plan = calibratedTransferPlan(plan, mode);
   const tanks = rampIndex(plan.tanks, "Tanks");
   const valves = rampIndex(plan.valves, "Valve / line");
   const groups = rampIndex(plan.pumps, "Ομάδες αντλιών");
@@ -49,7 +51,7 @@ function rampModel(plan, config, requireTargets = true) {
     points.push(point);
   }
   const interpolateLevel = (id, value, column) => {
-    const points = tables.get(id) || [];
+    const points = tables.get(id) || (typeof cargoCalibrationPoints === "function" ? cargoCalibrationPoints(id) : []);
     const i = points.findIndex(point => point[column] >= value - rampTolerance);
     if (i < 0 || value < points[0][column] - rampTolerance) return null;
     const a = points[i === 0 ? 0 : i - 1];
@@ -313,7 +315,7 @@ function rampLoading(model, config) {
       notice: first.notice - response, before: peak, after: first.after });
     delete first.notice;
   }
-  for (const [i, route] of routes.entries()) events.push({ at: finishes[i] + bulkMinutes, name: route.tank + " complete", tank: route.tank, rob: tanks[i].target });
+  for (const [i, route] of routes.entries()) events.push({ at: finishes[i] + bulkMinutes, name: rampTankName(route.tank) + " complete", tank: route.tank, rob: tanks[i].target });
   const checked = rampCheck(model, stages, "loading");
   const baseline = stages.find(stage => Math.abs(stage.to - (firstFinish + bulkMinutes)) < rampTolerance);
   const offsets = tanks.map(tank => {
@@ -624,7 +626,7 @@ function runGuidedRamp(balance) {
   const mode = S.transfer.mode ?? "loading";
   try {
     const config = guidedConfig();
-    const model = rampModel(plan, config, !balance);
+    const model = rampModel(plan, config, !balance, mode);
     const result = balance ? rampBalance(model, config, mode) : mode === "loading" ? rampLoading(model, config) : rampDischarge(model, config);
     result.limit = model.globalLimit;
     guidedResult = result;
@@ -646,28 +648,29 @@ function runGuidedRamp(balance) {
     $("rampEvents").innerHTML = result.events?.length ? tableHtml(
       ["Συμβάν", "Notice", "Έναρξη αλλαγής", "Ώρα συμβάντος", "Πριν → μετά m³/h", "Στάθμη m", "ROB m³"],
       [...result.events].sort((a, b) => a.at - b.at).map(event => [
-        event.name, rampEventTime(epoch, event.notice), rampEventTime(epoch, event.transitionAt),
+        event.tank && !event.name.endsWith(" complete") && rampTankName(event.tank) !== event.tank
+          ? event.name + " · " + rampTankName(event.tank) : event.name, rampEventTime(epoch, event.notice), rampEventTime(epoch, event.transitionAt),
         rampEventTime(epoch, event.at), [event.before, event.after].some(Number.isFinite) ?
           showValue(event.before) + " → " + showValue(event.after) : "—", showValue(event.level, 3), showValue(event.rob),
       ])) : "";
     $("rampRates").innerHTML = tableHtml(["Από → έως", "Στάδιο", "Σύνολο m³/h", "Παροχή ανά tank m³/h", "Παροχή ανά αντλία m³/h", "ROB τέλους m³"],
       result.stages.map(stage => [
         rampClock(stage.from) + " → " + rampClock(stage.to), stage.label, stage.ends.map(value => showValue(value)).join(" → "),
-        [...stage.tankRates].map(([id, pair]) => id + " " + pair.map(value => showValue(value)).join(" → ")).join(" · "),
+        [...stage.tankRates].map(([id, pair]) => rampTankName(id) + " " + pair.map(value => showValue(value)).join(" → ")).join(" · "),
         [...(stage.pumpRates || [])].map(([id, pair]) => id + " " + pair.map(value => showValue(value)).join(" → ")).join(" · ") || "—",
-        [...stage.rob].map(([id, volume]) => id + " " + showValue(volume)).join(" · "),
+        [...stage.rob].map(([id, volume]) => rampTankName(id) + " " + showValue(volume)).join(" · "),
       ]));
     $("rampOffsets").innerHTML = result.snapshot ? tableHtml(
       ["Tank", "Προβλεπόμενο ROB στην έναρξη ramp-down m³", "Στάθμη m", "Τελικό heel m³"],
-      result.snapshot.map(({ id, volume }) => [id, showValue(volume), showValue(model.interpolateLevel(id, volume, 1), 3),
+      result.snapshot.map(({ id, volume }) => [rampTankName(id), showValue(volume), showValue(model.interpolateLevel(id, volume, 1), 3),
         showValue(result.volumes.get(id))])) : result.offsets ? tableHtml(
       result.reference ? ["Tank", "Παροχή m³/h", "Αρχική διαφορά π.μ.", "Τελική διαφορά π.μ.", "Τελικό ROB m³"] :
         ["Tank", "Bulk rate m³/h", "ROB στο αίτημα m³", "Υπόλοιπο στο αίτημα m³", "ROB στο πρώτο complete m³", "Υπόλοιπο στο πρώτο complete m³", "Υπόλοιπο στο πρώτο complete π.μ."],
       result.offsets.map(row => {
         const { tank } = row;
         const remaining = tank.target - row.atFirst;
-        return result.reference ? [tank.id, showValue(row.rate), showValue(row.initialDelta), showValue(row.delta), showValue(result.volumes.get(tank.id))] :
-          [tank.id, showValue(row.rate), showValue(row.requestRob), showValue(tank.target - row.requestRob), showValue(row.atFirst),
+        return result.reference ? [rampTankName(tank.id), showValue(row.rate), showValue(row.initialDelta), showValue(row.delta), showValue(result.volumes.get(tank.id))] :
+          [rampTankName(tank.id), showValue(row.rate), showValue(row.requestRob), showValue(tank.target - row.requestRob), showValue(row.atFirst),
             showValue(remaining), showValue(Number.isFinite(tank.capacity) ? 100 * remaining / tank.capacity : NaN)];
       })) : "";
     output.hidden = false;

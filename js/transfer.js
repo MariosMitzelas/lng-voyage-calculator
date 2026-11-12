@@ -73,6 +73,7 @@ function txRateCeiling(value) {
 }
 
 function calculateTransfer(plan, mode) {
+  if (typeof calibratedTransferPlan === "function") plan = calibratedTransferPlan(plan, mode);
   const errors = [];
   const warnings = [];
   const loading = mode === "loading";
@@ -271,24 +272,32 @@ function calculateTransfer(plan, mode) {
   return { errors, warnings, stages: checks, tanks: [...balances], total, elapsed, finish: startEpoch + elapsed * 60000 };
 }
 
-function txInput(key, rowIndex, row, field) {
+function txInput(key, rowIndex, row, field, calibratedRow = row) {
   const [name, label, type = "text"] = field;
   const attrs = `aria-label="${opsEscape(label)} · ${rowIndex + 1}" data-transfer-table="${key}" data-transfer-row="${rowIndex}" data-transfer-key="${name}"`;
   if (type === "kind") return `<select ${attrs}>${optionsHtml(Object.entries(transferKinds), row[name] ?? "up")}</select>`;
   if (type === "checkbox") return `<input ${attrs} type="checkbox" ${row[name] !== false ? "checked" : ""}>`;
   const number = type === "number" ? 'min="0" step="any" inputmode="decimal"' : "";
-  return `<input ${attrs} type="${type}" ${number} value="${opsEscape(row[name])}">`;
+  const labelText = typeof cargoTankLabel === "function" && (key === "tanks" && name === "id" || key === "routes" && name === "tank")
+    ? cargoTankLabel(row[name]) : row[name];
+  const fixedCapacity = key === "tanks" && name === "capacity" && calibratedRow !== row;
+  const note = labelText !== row[name] ? `<small>${opsEscape(labelText)}</small>`
+    : key === "tanks" && name === "max" && calibratedRow !== row
+      ? `<small>Όριο πλάνου ${txDisplay(calibratedRow.max, 3)} m³</small>` : "";
+  return `<input ${attrs} type="${type}" ${number} value="${opsEscape(fixedCapacity ? calibratedRow[name] : row[name])}"
+    ${fixedCapacity ? "readonly" : ""}>${note}`;
 }
 
 function renderTransferTables() {
   const plan = transferPlan();
+  const calibrated = typeof calibratedTransferPlan === "function" ? calibratedTransferPlan(plan, S.transfer.mode ?? "loading") : plan;
   $("transferInputs").innerHTML = Object.entries(transferTables).map(([key, config]) => `
     <section class="transfer-group" aria-label="${config.title}">
       <h3>${config.title}</h3><p class="hint">${config.hint}</p>
       <div class="table-wrap">
         <table class="data-table transfer-table">
           <thead><tr>${config.fields.map(([, label]) => `<th scope="col">${opsEscape(label)}</th>`).join("")}<th scope="col">Ενέργεια</th></tr></thead>
-          <tbody>${plan[key].map((row, i) => `<tr>${config.fields.map((field) => `<td>${txInput(key, i, row, field)}</td>`).join("")}
+          <tbody>${plan[key].map((row, i) => `<tr>${config.fields.map((field) => `<td>${txInput(key, i, row, field, key === "tanks" ? calibrated.tanks[i] : row)}</td>`).join("")}
             <td class="transfer-row-actions">
               ${key === "stages" ? `<button class="btn small" type="button" aria-label="Μετακίνηση σταδίου ${i + 1} επάνω"
                 data-transfer-move="${i}" ${i === 0 ? "disabled" : ""}>↑</button>` : ""}
@@ -350,7 +359,7 @@ function renderTransferResult() {
   );
   $("transferTankResults").innerHTML = tableHtml(
     ["Tank", "Αρχικά m³", "Τελικά m³", "Στόχος m³", "Απόκλιση m³", "Δηλωμένα όρια m³"],
-    r.tanks.map(([id, tank]) => [id, txDisplay(tank.start), txDisplay(tank.volume), txDisplay(tank.target),
+    r.tanks.map(([id, tank]) => [typeof cargoTankLabel === "function" ? cargoTankLabel(id) : id, txDisplay(tank.start), txDisplay(tank.volume), txDisplay(tank.target),
       txDisplay(tank.volume - tank.target), `${txDisplay(tank.min)} → ${txDisplay(tank.max)}`])
   );
 }
@@ -379,6 +388,10 @@ function editTransferField(event) {
   const plan = transferPlan();
   if (transferField) plan[transferField] = input.value;
   else plan[transferTable][Number(transferRow)][transferKey] = input.type === "checkbox" ? input.checked : input.value;
+  if ((transferTable === "tanks" && ["id", "max"].includes(transferKey)) ||
+      (transferTable === "routes" && transferKey === "tank")) {
+    if (event.type === "change" && typeof cargoCalibration === "function" && cargoCalibration()) renderTransferTables();
+  }
   clearTransferResults();
 }
 

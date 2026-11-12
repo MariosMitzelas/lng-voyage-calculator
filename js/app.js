@@ -308,7 +308,8 @@ function compute() {
   const arrMdo = S.robMdo - mdoT - marginMdo;
 
   // Max intake: χρησιμοποιήσιμος χώρος − heel άφιξης (με margin)
-  const usableM3 = S.capacity * (S.fillPct / 100);
+  const calibration = typeof cargoCalibration === "function" ? cargoCalibration() : null;
+  const usableM3 = calibration ? cargoTotalAtFill(calibration, S.fillPct) : S.capacity * (S.fillPct / 100);
   const heelAtLoad = Math.max(0, arrRobM3Margin); // heel που θα παραμείνει (conservative)
   const maxIntakeM3 = usableM3 - heelAtLoad;
   const maxIntakeT = maxIntakeM3 * S.density;
@@ -998,6 +999,7 @@ function render() {
   }
   renderPhaseForecast(r);
   if (typeof renderCharterParty === "function") renderCharterParty(r);
+  if (typeof renderCargoCalibration === "function") renderCargoCalibration();
   renderOperationsControls();
   runScenarios();
 }
@@ -1094,7 +1096,14 @@ function init() {
   }
 
   bind("capacity", "capacity");
-  bind("fillPct", "fillPct");
+  $("fillPct").addEventListener("change", event => {
+    S.fillPct = num(event.target.value);
+    if (typeof cargoCalibration === "function" && cargoCalibration()) {
+      renderTransferTables();
+      clearTransferResults();
+    }
+    render();
+  });
   bind("marginMode", "marginMode", (v) => v);
   bind("marginPct", "marginPct", (v) => v);
   bind("marginAmount", "marginAmount", (v) => v);
