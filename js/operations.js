@@ -18,7 +18,7 @@ const scenarioIds = ["opsDelayA", "opsDelayB", "opsDelayC", "opsMax", "opsOpen",
 const dischargeIds = ["discStart", "discLoaded", "discVolume", "discHeel", "discRate", "discUp", "discDown",
   "discStripVolume", "discStripTime", "discLoss"];
 const profileKeys = ["density", "capacity", "fillPct", "coolTanks", "coolLine", "cvLNG", "cvFOE",
-  "consTable", "charterParty", "cargoCalibration", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
+  "consTable", "charterParty", "cargoCalibration", "borOverrides", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
 
 function opsState() {
   if (!S.ops || typeof S.ops !== "object") S.ops = {};
@@ -48,6 +48,67 @@ function tableHtml(headers, rows) {
 
 function optionsHtml(options, selected) {
   return options.map(([value, label]) => `<option value="${opsEscape(value)}"${String(value) === String(selected) ? " selected" : ""}>${opsEscape(label)}</option>`).join("");
+}
+
+const manualBorPhases = ["laden", "ballast"];
+
+function manualBorRate(config) {
+  const value = config?.rate;
+  const rate = typeof value === "number" || (typeof value === "string" && value.trim()) ? Number(value) : NaN;
+  return Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : NaN;
+}
+
+function effectiveBoilOff(state, phase) {
+  const override = manualBorPhases.includes(phase) ? state.borOverrides?.[phase] : null;
+  if (override?.enabled === true) {
+    const rate = manualBorRate(override);
+    const basis = override.basis === "rob" ? "rob" : "capacity";
+    if (Number.isFinite(rate) && (basis === "rob" || state.capacity > 0)) return { rate, basis };
+  }
+  const rate = opsNumber(state.phaseModel?.[phase]?.bor);
+  return { rate: rate <= 100 ? rate : NaN, basis: "rob" };
+}
+
+function renderManualBor(result) {
+  const panel = $("manualBor");
+  if (!panel) return;
+  const status = [];
+  for (const phase of manualBorPhases) {
+    const config = S.borOverrides?.[phase];
+    const enabled = config?.enabled === true;
+    for (const input of panel.querySelectorAll(`[data-bor-phase="${phase}"]`)) {
+      const key = input.dataset.borKey;
+      if (key === "enabled") input.checked = enabled;
+      if (key === "rate" && input.value !== String(config?.rate ?? "")) input.value = config?.rate ?? "";
+      if (key === "basis") input.value = config?.basis === "rob" ? "rob" : "capacity";
+      if (key !== "enabled") input.disabled = !enabled;
+    }
+    if (enabled && !Number.isFinite(manualBorRate(config))) {
+      status.push(phaseNames[phase] + " · βάλε τιμή από 0 έως 100%. Χρησιμοποιείται η ρύθμιση του Voyage Operations, αν υπάρχει.");
+      continue;
+    }
+    if (enabled && config?.basis !== "rob" && !(S.capacity > 0)) {
+      status.push(phaseNames[phase] + " · χρειάζεται έγκυρη χωρητικότητα δεξαμενών.");
+      continue;
+    }
+    const bor = effectiveBoilOff(S, phase);
+    const rows = result.phaseForecast.rows.filter(row => row.kind === phase);
+    if (rows.length && Number.isFinite(bor.rate)) {
+      const natural = rows.reduce((sum, row) => sum + row.natural, 0);
+      status.push(phaseNames[phase] + " · " + fmt(bor.rate, 3) + "%/ημ επί " +
+        (bor.basis === "capacity" ? "χωρητικότητας" : "LNG ROB") + " · φυσικό BOG " + fmt(natural, 2) + " m³ στον πλου.");
+    }
+  }
+  $("manualBorStatus").textContent = status.join(" ");
+}
+
+function updateManualBor(event) {
+  const input = event.target;
+  const { borPhase, borKey } = input.dataset;
+  if (!manualBorPhases.includes(borPhase) || !["enabled", "rate", "basis"].includes(borKey)) return;
+  const config = ((S.borOverrides ??= {})[borPhase] ??= {});
+  config[borKey] = borKey === "enabled" ? input.checked : input.value;
+  render();
 }
 
 function forecastPhases(legs, rates, state, hours) {
@@ -80,9 +141,12 @@ function forecastPhases(legs, rates, state, hours) {
         return Number.isFinite(override) ? override : Number.isFinite(idle) ? idle : sailing[fuel] ?? NaN;
       };
       const demand = rate("lng") * days;
-      const bor = opsNumber(setup.bor);
-      const natural = Number.isFinite(bor) && bor <= 100
-        ? Math.max(0, rob) * (1 - (1 - bor / 100) ** days) : 0;
+      const { rate: bor, basis: borBasis } = effectiveBoilOff(state, kind);
+      const borValid = Number.isFinite(bor);
+      const available = Math.max(0, rob);
+      const natural = !borValid ? 0 : borBasis === "capacity"
+        ? Math.min(available, state.capacity * bor / 100 * days)
+        : available * (1 - (1 - bor / 100) ** days);
       const forced = Math.max(0, demand - natural);
       const recovered = Math.min(Math.max(0, natural - demand), (opsNumber(setup.frs) || 0) * days);
       const loss = Math.max(demand, natural - recovered);
@@ -98,7 +162,7 @@ function forecastPhases(legs, rates, state, hours) {
       mdoT += diesel;
       rows.push({ leg: i + 1, kind, time, demand, lngT: mass, foT: fuelOil, mdoT: diesel, natural, forced, recovered, loss, rob,
         charter: Boolean(sailing.charter || port || winter),
-        bogEnabled: Number.isFinite(bor),
+        bor, borBasis, bogEnabled: borValid,
         exceedsForcing: Number.isFinite(forcingLimit) && forced > forcingLimit * days + 1e-7 });
     }
   });
@@ -152,12 +216,15 @@ function savePhaseModel() {
 }
 
 function renderPhaseForecast(result) {
+  renderManualBor(result);
   if (!$("opsPhaseResults")) return;
   $("opsPhaseResults").innerHTML = tableHtml(
-    ["Σκέλος", "Φάση", "Ώρες", "LNG καυσίμου (m³)", "NBOG (m³)", "Forcing (m³)",
+    ["Σκέλος", "Φάση", "Ώρες", "BOR (%/ημ · βάση)", "LNG καυσίμου (m³)", "NBOG (m³)", "Forcing (m³)",
       "Ανάκτηση FRS (m³)", "Μείωση LNG (m³)", "LNG ROB (m³)", "Όριο forcing"],
     result.phaseForecast.rows.map((row) => [
-      row.leg, phaseNames[row.kind], fmt(row.time, 1), fmt(row.demand, 1),
+      row.leg, phaseNames[row.kind], fmt(row.time, 1),
+      row.bogEnabled ? fmt(row.bor, 3) + "% · " + (row.borBasis === "capacity" ? "χωρητικότητα" : "ROB") : "—",
+      fmt(row.demand, 1),
       row.bogEnabled ? fmt(row.natural, 1) : "—", row.bogEnabled ? fmt(row.forced, 1) : "—",
       fmt(row.recovered, 1), fmt(row.loss, 1), fmt(row.rob, 1), row.exceedsForcing ? "Υπέρβαση" : "—",
     ])
@@ -314,6 +381,7 @@ function compareVoyages(base, report, slot, delays, settings) {
     for (const key of [...profileKeys, "phaseCurves", "phaseModel"]) {
       if (S[key] !== undefined) state[key] = S[key];
     }
+    state.borOverrides = S.borOverrides;
     const validSlot = moveSlot(state, baseline, slot, offset, delay);
     if (!validSlot) return { name: "ABC"[i], delay, issue: "Λείπει ώρα για το επιλεγμένο slot." };
     if (Number.isFinite(settings.open) || Number.isFinite(settings.close)) {
@@ -466,6 +534,7 @@ function applyVesselProfile(profile) {
     if (data.cargoCalibration) installCargoCalibration(data.cargoCalibration);
     else delete S.cargoCalibration;
   }
+  if (!Object.hasOwn(data, "borOverrides")) delete S.borOverrides;
   S.phaseCurves = opsClone(data.phaseCurves || {});
   S.phaseModel = opsClone(data.phaseModel || {});
   const ops = opsState();
@@ -653,6 +722,7 @@ function initOperations() {
     if ($("opsBrief").value) downloadFile("voyage-update.txt", $("opsBrief").value, "text/plain;charset=utf-8");
   });
   $("opsApplyModel").addEventListener("click", savePhaseModel);
+  $("manualBor")?.addEventListener("change", updateManualBor);
   $("opsProfileSave").addEventListener("click", () => {
     const name = $("opsProfileName").value.trim();
     if (name) persistProfile(name.slice(0, 80), profileData());
