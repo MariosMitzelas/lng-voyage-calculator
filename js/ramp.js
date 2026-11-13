@@ -209,11 +209,29 @@ function shoreShares(model, active, peak, topping) {
   return new Map([...flows].map(([id, flow]) => [id, flow / peak]));
 }
 
+function shoreRequestRows(stages, steps, initialRob, response, notice) {
+  const finish = stages.at(-1).to;
+  const totalLoaded = rampSum(stages.map(stage => rampSum(stage.ends) * (stage.to - stage.from) / 120));
+  const loadedAt = (minutes) => rampSum(stages.map(stage => {
+    const duration = stage.to - stage.from;
+    const elapsed = Math.min(duration, Math.max(0, minutes - stage.from));
+    const [start, end] = stage.ends;
+    return (start + (end - start) * elapsed / duration / 2) * elapsed / 60;
+  }));
+  return steps.map((step, i) => {
+    const requestAt = step.at - notice - (i === 0 ? response : 0);
+    const loaded = loadedAt(requestAt);
+    return { ...step, requestAt, loaded, rob: initialRob + loaded,
+      remaining: Math.max(0, totalLoaded - loaded), minutesToFinish: finish - requestAt };
+  });
+}
+
 function rampLoading(model, config) {
   const routes = rampRouteList(model, config.loadingRoutes);
   const tanks = routes.map(route => model.tanks.get(route.tank));
   const peak = rampNumber(config.bulkRate, "Bulk shore rate", 1);
   const gap = rampChange(config.tankGap ?? 15, "Χρόνος μεταξύ ολοκληρώσεων");
+  const notice = rampOptional(config.notice, "Χρόνος ειδοποίησης", 0);
   const parts = [];
   const events = [];
   let at = 0;
@@ -238,14 +256,16 @@ function rampLoading(model, config) {
       const move = rampChange(transition, "Χρόνος μετάβασης");
       const rest = rampOptional(hold, "Hold", 0);
       events.push({ at, name: tag || (phase === "up" ? "Shore rate-up" : "Shore rate-down"), before: rate, after: next,
-        notice: at - rampOptional(config.notice, "Χρόνος ειδοποίησης", 0) });
+        tag, notice: at - notice });
       add(next, move, rest, tag || (phase === "up" ? "Ramp-up" : "Shore rate-down"), phase);
     }
   };
   const up = rampRows(config.shoreUp);
   if (!up.length) throw new Error("Δήλωσε τα shore ramp-up setpoints έως το bulk rate.");
+  const lastUp = up.at(-1)[0];
+  if (lastUp?.toUpperCase() !== "BULK") rampNumber(lastUp, "Τελευταίο ramp-up setpoint", 1);
+  up.at(-1)[0] = peak;
   parseSteps(up, "up");
-  if (Math.abs(rate - peak) > rampTolerance) throw new Error("Το τελευταίο ramp-up setpoint πρέπει να ισούται με το bulk rate.");
   const pre = parts.splice(0);
   const upMinutes = at;
   const upEventCount = events.length;
@@ -323,7 +343,9 @@ function rampLoading(model, config) {
     return { tank, rate: peak * preVolumes[tanks.indexOf(tank)] / preTotal, atFirst,
       requestRob: tank.target - remaining.get(tank.id) };
   });
-  return { ...checked, events, offsets, tailStart: upMinutes + bulkMinutes, title: "Πλάνο shore rate και topping-off" };
+  const shoreRequests = shoreRequestRows(stages, shoreDownEvents, rampSum([...model.tanks.values()].map(tank => tank.start)),
+    response, notice);
+  return { ...checked, events, offsets, shoreRequests, tailStart: upMinutes + bulkMinutes, title: "Πλάνο shore rate και topping-off" };
 }
 
 function rampVolumeInput(model, tank, raw, label) {
@@ -547,6 +569,29 @@ function rampEventTime(epoch, minutes) {
   return new Date(epoch + Math.round(minutes * 60) * 1000).toISOString().slice(0, 19).replace("T", " ") + " UTC";
 }
 
+function renderShoreRequests(result, epoch, style) {
+  const panel = $("shoreRequestPanel");
+  if (!panel) return;
+  panel.hidden = !result.shoreRequests?.length || result.errors.length > 0;
+  if (panel.hidden) return;
+  const fmtVolume = value => txDisplay(value, 3);
+  $("shoreRequestTable").innerHTML = tableHtml(
+    ["Αίτημα προς shore", "Ώρα αιτήματος", "Έναρξη μείωσης", "Χρόνος μέχρι τέλος", "Παροχή πριν → μετά (m³/h)",
+      "Φορτωμένα από την έναρξη (m³)", "Σύνολο LNG onboard (m³)", "Απομένουν για φόρτωση (m³)"],
+    result.shoreRequests.map(step => {
+      const reduction = "Μείωση " + txDisplay(step.before - step.after, 2) + " m³/h";
+      const action = step.tag && style === "pumps" ? "Stop shore pump " + step.tag
+        : step.tag || (step.after === 0 ? "Τελικό stop φόρτωσης" : reduction);
+      const time = rampEventTime(epoch, step.requestAt);
+      return [action, step.requestAt < 0 ? time + " · πριν την έναρξη" : time,
+        rampEventTime(epoch, step.at), rampClock(step.minutesToFinish).slice(1),
+        txDisplay(step.before, 2) + " → " + txDisplay(step.after, 2),
+        fmtVolume(step.loaded), fmtVolume(step.rob), fmtVolume(step.remaining)];
+    }));
+  const finish = result.stages.at(-1).to;
+  $("shoreRequestFinish").textContent = "Προβλεπόμενη ολοκλήρωση φόρτωσης " + rampEventTime(epoch, finish) + ".";
+}
+
 function rampChart(result, scope) {
   const stages = result.stages.filter(stage => scope === "all" || (scope === "up" ? stage.phase === "up" :
     ["down", "topping", "response"].includes(stage.phase)));
@@ -590,8 +635,10 @@ function rampOffsetChart(result) {
 }
 
 let guidedResult = null;
+let refreshShoreRequests = false;
 
-function clearGuidedRamp() {
+function clearGuidedRamp(keepLive = false) {
+  if (!keepLive) refreshShoreRequests = false;
   guidedResult = null;
   $("rampFeedback").textContent = "";
   $("rampOutput").hidden = true;
@@ -620,10 +667,11 @@ function updateRampFields() {
 }
 
 function runGuidedRamp(balance) {
-  clearGuidedRamp();
+  clearGuidedRamp(true);
   const output = $("rampOutput");
   const plan = transferPlan();
   const mode = S.transfer.mode ?? "loading";
+  refreshShoreRequests = !balance && mode === "loading";
   try {
     const config = guidedConfig();
     const model = rampModel(plan, config, !balance, mode);
@@ -644,6 +692,7 @@ function runGuidedRamp(balance) {
     $("rampPlot").innerHTML = rampChart(result, "all");
     $("rampOffsetChart").innerHTML = rampOffsetChart(result);
     const epoch = opsDate(plan.start);
+    renderShoreRequests(result, epoch, config.downStyle);
     const showValue = (value, digits = 2) => Number.isFinite(value) ? txDisplay(value, digits) : "—";
     $("rampEvents").innerHTML = result.events?.length ? tableHtml(
       ["Συμβάν", "Notice", "Έναρξη αλλαγής", "Ώρα συμβάντος", "Πριν → μετά m³/h", "Στάθμη m", "ROB m³"],
@@ -679,13 +728,18 @@ function runGuidedRamp(balance) {
   }
 }
 
+function updateGuidedRampAfterEdit() {
+  if (refreshShoreRequests) runGuidedRamp(false);
+  else clearGuidedRamp();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   $("rampGuided").addEventListener("input", event => {
     const key = event.target.dataset.ramp;
     if (!key) return;
     guidedConfig()[key] = event.target.value;
     updateRampFields();
-    clearGuidedRamp();
+    updateGuidedRampAfterEdit();
   });
   $("rampCalculate").addEventListener("click", () => runGuidedRamp(false));
   $("rampBalanceRun").addEventListener("click", () => runGuidedRamp(true));

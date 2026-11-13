@@ -1100,7 +1100,7 @@ function init() {
     S.fillPct = num(event.target.value);
     if (typeof cargoCalibration === "function" && cargoCalibration()) {
       renderTransferTables();
-      clearTransferResults();
+      clearTransferResults(true);
     }
     render();
   });

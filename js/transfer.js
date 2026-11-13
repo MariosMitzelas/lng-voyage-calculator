@@ -364,10 +364,11 @@ function renderTransferResult() {
   );
 }
 
-function clearTransferResults() {
+function clearTransferResults(recalculate = false) {
   $("transferResults").hidden = true;
   $("transferStatus").replaceChildren();
-  if (typeof clearGuidedRamp === "function") clearGuidedRamp();
+  if (recalculate && typeof updateGuidedRampAfterEdit === "function") updateGuidedRampAfterEdit();
+  else if (typeof clearGuidedRamp === "function") clearGuidedRamp();
 }
 
 function syncTransferPlanner() {
@@ -392,7 +393,7 @@ function editTransferField(event) {
       (transferTable === "routes" && transferKey === "tank")) {
     if (event.type === "change" && typeof cargoCalibration === "function" && cargoCalibration()) renderTransferTables();
   }
-  clearTransferResults();
+  clearTransferResults(true);
 }
 
 function transferTableAction(event) {
@@ -416,7 +417,7 @@ function transferTableAction(event) {
     plan.stages.splice(index - 1, 0, stage);
   } else return;
   renderTransferTables();
-  clearTransferResults();
+  clearTransferResults(true);
 }
 
 function applyTransferTemplate() {
