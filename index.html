@@ -46,7 +46,7 @@
       <div class="sum-item"><div class="sum-label">Διάρκεια</div><div class="sum-value" id="sumDays" data-testid="text-sum-days">—</div></div>
       <div class="sum-item"><div class="sum-label">Ταχύτητα</div><div class="sum-value accent" id="sumSpeed" data-testid="text-sum-speed">—</div></div>
       <div class="sum-item"><div class="sum-label">LNG ταξιδίου</div><div class="sum-value" id="sumLng" data-testid="text-sum-lng">—</div></div>
-      <div class="sum-item"><div class="sum-label">Max Intake</div><div class="sum-value accent" id="sumMaxIntake" data-testid="text-sum-maxintake">—</div></div>
+      <div class="sum-item"><div class="sum-label" id="sumCargoLabel">Φορτίο άφιξης</div><div class="sum-value accent" id="sumMaxIntake" data-testid="text-sum-maxintake">—</div></div>
     </div>
   </div>
 
@@ -340,10 +340,10 @@
 
       <div class="card">
         <h2><span class="step">2</span>Ποσότητες αναχώρησης (ROB)</h2>
-        <p class="hint">Τις ποσότητες που απέπλευσε το πλοίο — LNG (heel), Fuel Oil και Diesel.</p>
+        <p class="hint">Βάλε τις πραγματικές ποσότητες στο πλοίο κατά την αναχώρηση.</p>
         <div class="grid-form">
           <div class="field">
-            <label for="robLng">LNG ROB αναχώρησης (m³)</label>
+            <label for="robLng" id="departureLngLabel">LNG ROB αναχώρησης (m³)</label>
             <input type="number" id="robLng" step="1" min="0" value="4000">
           </div>
           <div class="field">
@@ -372,12 +372,25 @@
       </div>
 
       <div class="card">
-        <h2>Max Intake — μέγιστη φόρτωση</h2>
-        <p class="hint">Με βάση το heel που θα έχετε στην άφιξη (με margin): Max Intake = (χωρητικότητα × μέγιστο γέμισμα) − heel άφιξης.</p>
-        <div class="result-grid">
-          <div class="result-box"><div class="r-label">Χρησιμοποιήσιμος χώρος</div><div class="r-value" id="maxUsable" data-testid="text-usable">—</div></div>
-          <div class="result-box"><div class="r-label">Heel άφιξης (με margin)</div><div class="r-value" id="maxHeel" data-testid="text-heel">—</div></div>
-          <div class="result-box hero" id="maxIntakeBox"><div class="r-label">MAX INTAKE</div><div class="r-value" id="maxIntakeOut" data-testid="text-maxintake">—</div><div class="r-sub" id="maxIntakeTOut">—</div></div>
+        <h2 id="cargoArrivalTitle">Εκτίμηση φορτίου στην άφιξη</h2>
+        <p class="hint" id="cargoArrivalNote" role="status" hidden></p>
+        <div class="result-grid" id="cargoArrivalBalances" hidden>
+          <div class="result-box"><div class="r-label">Εκτιμώμενη μείωση LNG στον πλου</div><div class="r-value" id="voyageCargoLoss">—</div></div>
+          <div class="result-box"><div class="r-label">Εκτιμώμενο LNG ROB άφιξης</div><div class="r-value" id="cargoArrivalRob">—</div></div>
+        </div>
+        <div id="ladenArrival" hidden>
+          <p class="hint">EDQ = LNG ROB άφιξης μείον το heel που θα κρατήσεις. Με κενό heel, εμφανίζεται ολόκληρη η ποσότητα άφιξης.</p>
+          <div class="result-grid">
+            <label class="field">Heel μετά την εκφόρτωση (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
+            <div class="result-box hero"><div class="r-label">Estimated Discharge Quantity</div><div class="r-value" id="edqOut">—</div></div>
+          </div>
+        </div>
+        <div id="ballastArrival" hidden>
+          <p class="hint">Max Intake = χρησιμοποιήσιμος όγκος στο μέγιστο γέμισμα μείον το εκτιμώμενο heel κατά την άφιξη. Το margin και το cool-down εμφανίζονται στο ισοζύγιο αποθεμάτων.</p>
+          <div class="result-grid">
+            <div class="result-box"><div class="r-label">Χρησιμοποιήσιμος όγκος δεξαμενών</div><div class="r-value" id="maxUsable" data-testid="text-usable">—</div></div>
+            <div class="result-box hero"><div class="r-label">MAX INTAKE</div><div class="r-value" id="maxIntakeOut" data-testid="text-maxintake">—</div><div class="r-sub" id="maxIntakeTOut">—</div></div>
+          </div>
         </div>
       </div>
 
@@ -386,7 +399,7 @@
         <p class="hint">Χρησιμοποιεί τη διάρκεια και τις καταναλώσεις του πλόου. Συμπλήρωσε μόνο τα στοιχεία που θέλεις. Για BOG, η εκτίμηση θεωρεί ότι το διαθέσιμο BOG καλύπτει πρώτα την κατανάλωση LNG.</p>
         <fieldset><legend>Φορτίο &amp; BOG</legend>
           <label class="field">Φορτωμένη ποσότητα (m³)<input type="number" min="0" step="any" data-analysis="loaded"></label>
-          <label class="field">Heel που θα διατηρηθεί (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
+          <label class="field">Heel μετά την εκφόρτωση (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
           <label class="field">Ημερήσιο BOR (%)<input type="number" min="0" max="100" step="any" data-analysis="bor"></label>
           <label class="field">BOG που επαναϋγροποιείται (m³ LNG συνολικά)<input type="number" min="0" step="any" data-analysis="reliq"></label>
           <label class="field">Εκτιμώμενο LNG για το ταξίδι επιστροφής (m³)<input type="number" min="0" step="any" data-analysis="returnLng"></label>
