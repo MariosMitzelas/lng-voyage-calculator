@@ -530,8 +530,8 @@
               <label class="field">Αρχική ανταπόκριση στεριάς (min)<input type="number" min="0" step="any" data-ramp="response"></label>
               <label class="field">Μέθοδος rate-down<select data-ramp="downStyle"><option value="thousands">By thousands / σταθερό βήμα</option><option value="pumps">By shore pumps</option><option value="custom">Custom / mixed</option></select></label>
             </div>
-            <label class="field">Shore ramp-up — setpoint m³/h, μετάβαση min, hold min, όνομα (προαιρετικό)
-              <textarea data-ramp="shoreUp" rows="3" placeholder="3000,5,3&#10;6000,5,3&#10;12000,8,0"></textarea></label>
+            <label class="field">Shore ramp-up — setpoint m³/h, μετάβαση min, hold min, όνομα (προαιρετικό). Το τελευταίο setpoint ακολουθεί το bulk shore rate.
+              <textarea data-ramp="shoreUp" rows="3" placeholder="3000,5,3&#10;6000,5,3&#10;BULK,8,0"></textarea></label>
             <div class="grid-form ops-fields" id="rampShoreThousands">
               <label class="field">Βήμα μείωσης (m³/h)<input type="number" min="1" step="any" data-ramp="downStep"></label>
               <label class="field">Μετάβαση κάθε μείωσης (min)<input type="number" min="0.01" step="any" data-ramp="downTransition"></label>
@@ -578,6 +578,12 @@
           <p id="rampFeedback" aria-live="polite"></p>
           <section id="rampOutput" hidden>
             <h3 id="rampTitle"></h3><p id="rampSummary"></p><ul id="rampIssues"></ul>
+            <section id="shoreRequestPanel" hidden>
+              <h4>Πίνακας αιτημάτων μείωσης προς shore</h4>
+              <p id="shoreRequestFinish"></p>
+              <p class="hint">Οι όγκοι αφορούν την ώρα του αιτήματος. Η ώρα αιτήματος προηγείται της μείωσης κατά το notice και, στο πρώτο βήμα, κατά τον χρόνο αρχικής ανταπόκρισης. Μετά τον πρώτο υπολογισμό, ο πίνακας ενημερώνεται όταν αλλάζουν τα δεδομένα.</p>
+              <div class="table-wrap"><table class="data-table" id="shoreRequestTable"></table></div>
+            </section>
             <label class="field">Εστίαση γραφήματος<select id="rampView"><option value="all">Όλη η μεταφορά</option><option value="up">Ramp-up</option><option value="down">Ramp-down / topping-off</option></select></label>
             <div id="rampPlot"></div>
             <div id="rampOffsetChart"></div>
