@@ -302,17 +302,36 @@ function compute() {
   const requiredM3 = cargoUsed + marginM3 + coolTotal;
 
   // ROB άφιξης
-  const arrRobM3 = S.robLng - cargoUsed;                 // καθαρός υπολογισμός
-  const arrRobM3Margin = S.robLng - requiredM3;      // με margin + cooldown
+  const departureLng = optionalNumber(S.robLng);
+  const arrRobM3 = departureLng - cargoUsed;
+  const arrRobM3Margin = departureLng - requiredM3;
   const arrFo = S.robFo - foT - marginFo;
   const arrMdo = S.robMdo - mdoT - marginMdo;
 
-  // Max intake: χρησιμοποιήσιμος χώρος − heel άφιξης (με margin)
   const calibration = typeof cargoCalibration === "function" ? cargoCalibration() : null;
-  const usableM3 = calibration ? cargoTotalAtFill(calibration, S.fillPct) : S.capacity * (S.fillPct / 100);
-  const heelAtLoad = Math.max(0, arrRobM3Margin); // heel που θα παραμείνει (conservative)
-  const maxIntakeM3 = usableM3 - heelAtLoad;
-  const maxIntakeT = maxIntakeM3 * S.density;
+  const usableM3 = S.fillPct > 0 && S.fillPct <= 100
+    ? calibration ? cargoTotalAtFill(calibration, S.fillPct) : S.capacity * S.fillPct / 100
+    : NaN;
+  const phases = new Set(legs.flatMap((leg, i) => leg.canal ? [] : [S.legs[i].phase === "ballast" ? "ballast" : "laden"]));
+  const cargoMode = phases.size === 1 ? [...phases][0] : phases.size > 1 ? "mixed" : "";
+  const heelInput = S.analysis.heel;
+  const dischargeHeel = heelInput == null || heelInput === "" ? 0 : optionalNumber(heelInput);
+  const hasArrivalRob = departureLng >= 0 && arrRobM3 >= 0 && Number.isFinite(arrRobM3);
+  const edqM3 = cargoMode === "laden" && hasArrivalRob && dischargeHeel >= 0
+    ? Math.max(0, arrRobM3 - dischargeHeel) : NaN;
+  const maxIntakeM3 = cargoMode === "ballast" && hasArrivalRob && usableM3 > 0
+    ? Math.max(0, usableM3 - arrRobM3) : NaN;
+
+  let cargoNote = "";
+  if (cargoMode === "mixed") cargoNote = "Ο πλους περιέχει Laden και Ballast σκέλη. Υπολόγισε χωριστά κάθε πλου με το LNG ROB της αναχώρησής του.";
+  else if (!cargoMode) cargoNote = "Πρόσθεσε σκέλος πλεύσης και επίλεξε Laden ή Ballast.";
+  else if (!(departureLng >= 0)) cargoNote = "Συμπλήρωσε έγκυρο LNG ROB αναχώρησης.";
+  else if (!Number.isFinite(arrRobM3)) cargoNote = "Έλεγξε τη διαδρομή, την ταχύτητα και τις καταναλώσεις για να υπολογιστεί η άφιξη.";
+  else if (arrRobM3 < 0) cargoNote = "Το LNG ROB αναχώρησης δεν επαρκεί για την εκτιμώμενη μείωση LNG του πλου.";
+  else if (cargoMode === "laden" && !(dischargeHeel >= 0)) cargoNote = "Συμπλήρωσε έγκυρο heel μετά την εκφόρτωση.";
+  else if (cargoMode === "laden" && dischargeHeel > arrRobM3) cargoNote = "Το LNG ROB άφιξης είναι μικρότερο από το heel που θέλεις να κρατήσεις.";
+  else if (cargoMode === "ballast" && !(usableM3 > 0)) cargoNote = "Έλεγξε τη χωρητικότητα και το μέγιστο γέμισμα.";
+  else if (cargoMode === "ballast" && arrRobM3 > usableM3) cargoNote = "Το heel άφιξης υπερβαίνει τον χρησιμοποιήσιμο όγκο δεξαμενών.";
 
   return {
     legs, from, to, gc, distance, transitHours, waitHours, scheduleErrors, canals, phaseForecast,
@@ -321,8 +340,30 @@ function compute() {
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
     foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, marginM3, marginText, requiredM3,
     arrRobM3, arrRobM3Margin, arrFo, arrMdo,
-    usableM3, heelAtLoad, maxIntakeM3, maxIntakeT,
+    cargoMode, cargoNote, cargoUsed, usableM3, dischargeHeel, edqM3, maxIntakeM3,
   };
+}
+
+function cargoVolumeText(volume, withMass = true) {
+  if (!Number.isFinite(volume)) return "—";
+  return fmt(volume, 0) + " m³" + (withMass && S.density > 0 ? " / " + fmt(volume * S.density, 1) + " t" : "");
+}
+
+function cargoArrivalRows(r) {
+  if (!r.cargoMode || r.cargoMode === "mixed") return [["Εκτίμηση φορτίου", r.cargoNote]];
+  const rows = [
+    ["Μείωση LNG στον πλου", cargoVolumeText(r.cargoUsed)],
+    ["LNG ROB στην άφιξη", cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN)],
+  ];
+  if (r.cargoMode === "laden") {
+    rows.push(["Heel μετά την εκφόρτωση", cargoVolumeText(r.dischargeHeel)]);
+    rows.push(["EDQ", cargoVolumeText(r.edqM3)]);
+  } else {
+    rows.push(["Χρησιμοποιήσιμος όγκος", cargoVolumeText(r.usableM3, false)]);
+    rows.push(["MAX INTAKE", cargoVolumeText(r.maxIntakeM3)]);
+  }
+  if (r.cargoNote) rows.push(["Έλεγχος πλάνου", r.cargoNote]);
+  return rows;
 }
 
 /* ---------- Προαιρετική ανάλυση φορτίου, κόστους και εκπομπών ---------- */
@@ -568,11 +609,8 @@ ${row("Cool-down δεξαμενές + γραμμή", fmt(r.coolTotal, 0) + " m³
 ${row("Safety margin", r.marginText)}
 ${row("Συνολική απαιτούμενη ποσότητα", fmt(r.requiredM3, 0) + " m³")}
 </table>
-<h2>Φόρτωση (Max Intake)</h2><table>
-${row("Χωρητικότητα δεξαμενών", fmt(S.capacity, 0) + " m³ (" + S.fillPct + "% max fill)")}
-${row("Χρησιμοποιήσιμος χώρος", fmt(r.usableM3, 0) + " m³")}
-${row("Heel άφιξης (με margin)", fmt(r.heelAtLoad, 0) + " m³")}
-${row("MAX INTAKE", fmt(r.maxIntakeM3, 0) + " m³ = " + fmt(r.maxIntakeT, 0) + " t")}
+<h2>Εκτίμηση φορτίου στην άφιξη</h2><table>
+${cargoArrivalRows(r).map(([label, value]) => row(label, value)).join("")}
 </table>
 ${optionalRows.length ? `<h2>Ανάλυση φορτίου, κόστους και εκπομπών</h2><table>${optionalRows.map(([label, value]) => row(label, value)).join("")}</table>` : ""}
 <div class="sig"><div>Πλοίαρχος</div><div>Α' Μηχανικός</div><div>Ημ/νία</div></div>
@@ -849,8 +887,9 @@ function render() {
   $("sumDays").textContent = bad(r.days) ? "—" : fmt(r.days, 1) + " ημ";
   $("sumSpeed").textContent = bad(r.speed) ? "—" : fmt(r.speed, 1) + " kn";
   $("sumLng").textContent = bad(r.lngM3) ? "—" : fmt(r.lngM3, 0) + " m³";
-  $("sumMaxIntake").textContent = bad(r.maxIntakeM3) ? "—" : fmt(r.maxIntakeM3, 0) + " m³";
-  $("sumMaxIntake").classList.toggle("bad", r.maxIntakeM3 < 0);
+  const arrivalQuantity = r.cargoMode === "laden" ? r.edqM3 : r.maxIntakeM3;
+  if ($("sumCargoLabel")) $("sumCargoLabel").textContent = r.cargoMode === "laden" ? "EDQ" : r.cargoMode === "ballast" ? "Max Intake" : "Φορτίο άφιξης";
+  $("sumMaxIntake").textContent = cargoVolumeText(arrivalQuantity, false);
   $("sumSpeed").classList.toggle("bad", r.speed < 8 || r.speed > 21);
 
   // Ταξίδι — σκέλη
@@ -921,12 +960,23 @@ function render() {
   $("marginOut").textContent = r.marginText;
   $("reqOut").textContent = bad(r.requiredM3) ? "—" : `${fmt(r.requiredM3, 0)} m³ = ${fmt(r.requiredM3 * S.density, 1)} t`;
 
-  // Max intake
-  $("maxUsable").textContent = `${fmt(r.usableM3, 0)} m³`;
-  $("maxHeel").textContent = `${fmt(r.heelAtLoad, 0)} m³`;
-  $("maxIntakeOut").textContent = bad(r.maxIntakeM3) ? "—" : `${fmt(r.maxIntakeM3, 0)} m³`;
-  $("maxIntakeTOut").textContent = bad(r.maxIntakeT) ? "—" : `${fmt(r.maxIntakeT, 0)} t`;
-  $("maxIntakeBox").classList.toggle("bad", r.maxIntakeM3 < 0);
+  if ($("cargoArrivalTitle")) {
+    $("cargoArrivalTitle").textContent = r.cargoMode === "laden" ? "Laden · EDQ στο " + r.to.name
+      : r.cargoMode === "ballast" ? "Ballast · Max Intake στο " + r.to.name : "Εκτίμηση φορτίου στην άφιξη";
+    $("departureLngLabel").textContent = r.cargoMode === "laden" ? "Συνολικό LNG στο πλοίο μετά τη φόρτωση (m³)"
+      : r.cargoMode === "ballast" ? "LNG heel αναχώρησης μετά την εκφόρτωση (m³)" : "LNG ROB αναχώρησης (m³)";
+    $("cargoArrivalNote").textContent = r.cargoNote;
+    $("cargoArrivalNote").hidden = !r.cargoNote;
+    $("ladenArrival").hidden = r.cargoMode !== "laden";
+    $("ballastArrival").hidden = r.cargoMode !== "ballast";
+    $("cargoArrivalBalances").hidden = $("ladenArrival").hidden && $("ballastArrival").hidden;
+    $("voyageCargoLoss").textContent = cargoVolumeText(r.cargoUsed);
+    $("cargoArrivalRob").textContent = cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN);
+    $("edqOut").textContent = cargoVolumeText(r.edqM3);
+    $("maxUsable").textContent = cargoVolumeText(r.usableM3, false);
+    $("maxIntakeOut").textContent = cargoVolumeText(r.maxIntakeM3, false);
+    $("maxIntakeTOut").textContent = Number.isFinite(r.maxIntakeM3) && S.density > 0 ? fmt(r.maxIntakeM3 * S.density, 1) + " t" : "—";
+  }
 
   // Πλήρης σύνοψη (tab 4)
   const dt = (epoch) => Number.isFinite(epoch)
@@ -956,10 +1006,8 @@ function render() {
     <tr><td>Safety margin</td><td class="num">${r.marginText}</td></tr>
     <tr><td>Συνολική απαιτούμενη ποσότητα LNG</td><td class="num">${fmt(r.requiredM3, 0)} m³</td></tr>
     </tbody>
-    <thead><tr><th colspan="2">Φόρτωση</th></tr></thead><tbody>
-    <tr><td>Χρησιμοποιήσιμος χώρος (${S.fillPct}%)</td><td class="num">${fmt(r.usableM3, 0)} m³</td></tr>
-    <tr><td>Heel άφιξης (με margin)</td><td class="num">${fmt(r.heelAtLoad, 0)} m³</td></tr>
-    <tr><td><strong>MAX INTAKE</strong></td><td class="num"><strong>${fmt(r.maxIntakeM3, 0)} m³ = ${fmt(r.maxIntakeT, 0)} t</strong></td></tr>
+    <thead><tr><th colspan="2">Εκτίμηση φορτίου στην άφιξη</th></tr></thead><tbody>
+    ${cargoArrivalRows(r).map(([label, value]) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`).join("")}
     </tbody>`;
 
   const optionalRows = analysisRows(r);
@@ -985,8 +1033,6 @@ function render() {
     warns.push("Ανεπαρκές Fuel Oil ROB για τον πλόο (λ.χ. IFO/MDO min safeguards).");
   if (Number.isFinite(r.arrMdo) && r.arrMdo < 0)
     warns.push("Ανεπαρκές MDO ROB για τον πλόο.");
-  if (Number.isFinite(r.maxIntakeM3) && r.maxIntakeM3 < 0)
-    warns.push("Μη ρεαλιστικό max intake — ελέγξτε heel/χωρητικότητα.");
   if (r.rateOutsideTable)
     warns.push("Τουλάχιστον μία ταχύτητα σκέλους είναι εκτός εύρους του πίνακα καταναλώσεων — οι τιμές είναι εκτίμηση (extrapolation).");
   $("warnings").innerHTML = warns.length
@@ -1038,7 +1084,8 @@ function init() {
   // — Ταξίδι: σκέλη —
   $("addLeg").addEventListener("click", () => {
     const last = S.legs[S.legs.length - 1];
-    S.legs.push({ fromIdx: last.toIdx, toIdx: 35, distMode: "gc", manualDist: 1000 });
+    const lastSeaLeg = S.legs.findLast(leg => !legCanal(leg.fromIdx, leg.toIdx));
+    S.legs.push({ fromIdx: last.toIdx, toIdx: 35, distMode: "gc", manualDist: 1000, phase: lastSeaLeg?.phase });
     S.arrTz = portTz(35);
     $("arrTz").innerHTML = tzOptions(S.arrTz);
     renderLegs(); render();
@@ -1111,6 +1158,9 @@ function init() {
   document.querySelectorAll("[data-analysis]").forEach((input) =>
     input.addEventListener("change", () => {
       S.analysis[input.dataset.analysis] = input.value;
+      if (input.dataset.analysis === "heel") {
+        for (const field of document.querySelectorAll('[data-analysis="heel"]')) field.value = input.value;
+      }
       render();
     })
   );
