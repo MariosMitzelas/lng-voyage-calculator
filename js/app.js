@@ -1148,8 +1148,8 @@ function init() {
   $("fillPct").addEventListener("change", event => {
     S.fillPct = num(event.target.value);
     if (typeof cargoCalibration === "function" && cargoCalibration()) {
-      renderTransferTables();
-      clearTransferResults(true);
+      renderRampForms(true);
+      renderTankStep(true);
     }
     render();
   });

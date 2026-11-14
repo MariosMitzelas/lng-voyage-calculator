@@ -52,7 +52,7 @@ function computeLinkedVoyage() {
         S.legs.some(leg => !legCanal(leg.fromIdx, leg.toIdx) && leg.phase === "ballast")) {
       throw new Error("Δήλωσε τα σκέλη της μετάβασης ως Laden στην καρτέλα Ταξίδι & Απόσταση.");
     }
-    const loaded = linkedTransfer(S.transfer?.loading, "loading", settings.method);
+    const loaded = linkedTransfer(S.transfer?.loading, "loading", settings.method ?? "forms");
     const dep = localToEpoch(S.depDate, S.depTime, S.depTz);
     const loadStart = opsDate(S.transfer.loading.start);
     const loadFinish = loadStart + loaded.minutes * 60000;
@@ -92,7 +92,7 @@ function computeLinkedVoyage() {
     const start = unload.start ? opsDate(unload.start) : outbound.etaArrEpoch;
     if (!(start >= outbound.etaArrEpoch - 30000)) throw new Error("Η έναρξη εκφόρτωσης προηγείται της άφιξης ή έχει μη έγκυρη ώρα.");
     add("Έναρξη εκφόρτωσης", start, (start - outbound.etaArrEpoch) / HOUR, arrivalRob);
-    const unloaded = linkedTransfer({ ...unload, tanks, start: opsIso(start) }, "unloading", settings.method);
+    const unloaded = linkedTransfer({ ...unload, tanks, start: opsIso(start) }, "unloading", settings.method ?? "forms");
     const finish = start + unloaded.minutes * 60000;
     const heel = [...unloaded.volumes.values()].reduce((sum, volume) => sum + volume, 0);
     add("Τέλος εκφόρτωσης · EDQ", finish, unloaded.minutes / 60, heel, unloaded.moved);
@@ -142,7 +142,7 @@ function syncLinkedVoyage() {
   if (!panel) return;
   const settings = S.linkedVoyage ?? {};
   for (const input of panel.querySelectorAll("[data-linked]")) {
-    input.value = settings[input.dataset.linked] ?? (input.dataset.linked === "method" ? "guided" : "");
+    input.value = settings[input.dataset.linked] ?? (input.dataset.linked === "method" ? "forms" : "");
   }
   $("returnRoute").innerHTML = panel.open ? linkedReturnRoute().map((leg, i, route) => {
     const edit = settings.returnLegs?.[i] ?? {};
@@ -166,9 +166,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!panel) return;
   panel.addEventListener("toggle", syncLinkedVoyage);
   $("transferPlanner")?.addEventListener("change", renderLinkedVoyage);
-  $("transferPlanner")?.addEventListener("click", event => {
-    if (event.target.closest("#transferInputs button, #transferTemplate")) renderLinkedVoyage();
-  });
   panel.addEventListener("change", event => {
     const { linked, returnIndex, returnKey } = event.target.dataset;
     if (!linked && !returnKey) return;
