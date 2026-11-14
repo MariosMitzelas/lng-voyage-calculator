@@ -632,18 +632,6 @@ function calculateDischarge(values, tanks) {
   return { volume, heel, hours, finish, fullRateHours, tankStart, tankHeel, errors, warnings };
 }
 
-function renderTanks() {
-  const tanks = dischargeState().tanks || [];
-  const headings = [["start", "Αρχικός όγκος"], ["heel", "Heel"], ["min", "Min heel"], ["max", "Max heel"]];
-  $("discTanks").innerHTML = "<thead><tr><th>Δεξαμενή</th>"
-    + headings.map(([, label]) => `<th>${label} (m³)</th>`).join("") + "<th></th></tr></thead><tbody>"
-    + tanks.map((tank, i) => `<tr><th scope="row">No. ${i + 1}</th>`
-      + headings.map(([key, label]) => `<td><input type="number" step="any" min="0" aria-label="${label} δεξαμενής ${i + 1}"
-        data-tank="${i}" data-quantity="${key}" value="${opsEscape(tank[key])}"></td>`).join("")
-      + `<td><button type="button" class="btn small" aria-label="Διαγραφή δεξαμενής ${i + 1}" data-remove-tank="${i}">×</button></td></tr>`).join("")
-    + "</tbody>";
-}
-
 function runDischarge() {
   const discharge = dischargeState();
   discharge.values = Object.fromEntries(dischargeIds.map((id) => [id, $(id).value]));
@@ -652,8 +640,7 @@ function runDischarge() {
     $("discResult").innerHTML = "";
     return;
   }
-  const invalidInput = dischargeIds.some((id) => !$(id).checkValidity())
-    || [...$("discTanks").querySelectorAll("input")].some((input) => !input.checkValidity());
+  const invalidInput = dischargeIds.some((id) => !$(id).checkValidity());
   if (invalidInput) {
     $("discStatus").textContent = "Έλεγξε τις καταχωρίσεις. Οι ποσότητες και οι ώρες πρέπει να είναι μη αρνητικές.";
     $("discResult").innerHTML = "";
@@ -684,7 +671,6 @@ function syncOperations() {
   $("opsLeg").value = String(active?.leg ?? 0);
   updateNoonFields();
   renderPhaseInputs();
-  renderTanks();
   runDischarge();
   renderProfiles();
   syncTransferPlanner();
@@ -756,23 +742,6 @@ function initOperations() {
     runDischarge();
   });
   for (const id of dischargeIds) $(id).addEventListener("change", runDischarge);
-  $("discAddTank").addEventListener("click", () => {
-    (dischargeState().tanks ??= []).push({});
-    renderTanks();
-    runDischarge();
-  });
-  $("discTanks").addEventListener("change", (event) => {
-    const { tank, quantity } = event.target.dataset;
-    if (tank === undefined) return;
-    dischargeState().tanks[Number(tank)][quantity] = event.target.value;
-    runDischarge();
-  });
-  $("discTanks").addEventListener("click", (event) => {
-    if (event.target.dataset.removeTank === undefined) return;
-    dischargeState().tanks.splice(Number(event.target.dataset.removeTank), 1);
-    renderTanks();
-    runDischarge();
-  });
   if (location.protocol !== "file:" && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
