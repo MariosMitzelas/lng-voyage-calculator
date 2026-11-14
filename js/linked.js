@@ -18,6 +18,7 @@ function linkedReturnRoute(state = S) {
 
 function linkedTransfer(plan, mode, method) {
   if (!plan?.tanks?.length) throw new Error("Συμπλήρωσε τις δεξαμενές του πλάνου " + (mode === "loading" ? "φόρτωσης." : "εκφόρτωσης."));
+  if (method === "forms") return linkedRampForm(plan, mode);
   if (method === "staged") {
     const result = calculateTransfer(plan, mode);
     if (result.errors.length) throw new Error(result.errors[0]);

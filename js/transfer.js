@@ -380,6 +380,7 @@ function syncTransferPlanner() {
   renderTransferTables();
   clearTransferResults();
   if (typeof syncGuidedRamp === "function") syncGuidedRamp();
+  if (typeof renderRampForms === "function") renderRampForms(true);
 }
 
 function editTransferField(event) {
