@@ -542,13 +542,7 @@
         <div class="grid-form ops-fields">
           <label class="field">Εργασία<select id="transferMode"><option value="loading">Φόρτωση</option><option value="unloading">Εκφόρτωση</option></select></label>
           <label class="field">Έναρξη (UTC)<input id="transferStart" type="datetime-local" data-transfer-field="start"></label>
-          <label class="field">Μέγιστο terminal rate (m³/h)<input type="number" min="0" step="any" data-transfer-field="terminal"></label>
-          <label class="field">Κοινό όριο manifold / arms (m³/h)<input type="number" min="0" step="any" data-transfer-field="manifold"></label>
-          <label class="field">Άλλο κοινό όριο, π.χ. vapour handling σε ισοδύναμη παροχή LNG (m³/h)<input type="number" min="0" step="any" data-transfer-field="vapour"></label>
-          <label class="field">Μέγιστη αύξηση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampUp"></label>
-          <label class="field">Μέγιστη μείωση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampDown"></label>
         </div>
-        <p class="hint">Άφησε κενό ένα προαιρετικό όριο που δεν έχεις. Κάθε διαδρομή συνδέει μία δεξαμενή με κοινά στοιχεία της γραμμής. Χρησιμοποίησε απλά αναγνωριστικά, π.χ. T1, P1, V1 και R1.</p>
         <details class="ramp-panel" id="rampForms">
           <summary>Φόρμες ramp-down · Φόρτωση / Εκφόρτωση</summary>
           <p class="hint">Εκτίμηση με βηματικές αλλαγές παροχής. Στη φόρτωση η ώρα αναφοράς είναι η έναρξη του bulk. Στην εκφόρτωση είναι η έναρξη του bulk πριν το πρώτο stop. Χρησιμοποίησε το καθοδηγούμενο πλάνο για αναλυτικά ramp-up, μεταβάσεις και όρια ανά γραμμή.</p>
@@ -595,91 +589,102 @@
           <div class="table-wrap"><table class="data-table" id="formRows"></table></div>
           <div id="formBars"></div>
         </details>
-        <details class="ramp-panel" id="rampGuided" open>
-          <summary>Καθοδηγούμενο πλάνο ramp &amp; tank sequence</summary>
-          <p class="hint">Χρησιμοποίησε τους παρακάτω πίνακες Δεξαμενών, Αντλιών, Βαλβίδων και Routes για τα δεδομένα του πλοίου. Οι ρυθμίσεις του πλάνου αποθηκεύονται μαζί με το ταξίδι.</p>
-          <div id="rampShoreFields">
-            <h3>Φόρτωση από τη στεριά</h3>
-            <div class="grid-form ops-fields">
-              <label class="field">Bulk shore rate (m³/h)<input type="number" min="1" step="any" data-ramp="bulkRate"></label>
-              <label class="field">Σειρά route ολοκλήρωσης<input data-ramp="loadingRoutes" placeholder="R1,R2,R3,R4"></label>
-              <label class="field">Λεπτά μεταξύ tank completions<input type="number" min="0.01" step="any" data-ramp="tankGap"></label>
-              <label class="field">Αρχική ανταπόκριση στεριάς (min)<input type="number" min="0" step="any" data-ramp="response"></label>
-              <label class="field">Μέθοδος rate-down<select data-ramp="downStyle"><option value="thousands">By thousands / σταθερό βήμα</option><option value="pumps">By shore pumps</option><option value="custom">Custom / mixed</option></select></label>
-            </div>
-            <label class="field">Shore ramp-up — setpoint m³/h, μετάβαση min, hold min, όνομα (προαιρετικό). Το τελευταίο setpoint ακολουθεί το bulk shore rate.
-              <textarea data-ramp="shoreUp" rows="3" placeholder="3000,5,3&#10;6000,5,3&#10;BULK,8,0"></textarea></label>
-            <div class="grid-form ops-fields" id="rampShoreThousands">
-              <label class="field">Βήμα μείωσης (m³/h)<input type="number" min="1" step="any" data-ramp="downStep"></label>
-              <label class="field">Μετάβαση κάθε μείωσης (min)<input type="number" min="0.01" step="any" data-ramp="downTransition"></label>
-              <label class="field">Hold μεταξύ μειώσεων (min)<input type="number" min="0" step="any" data-ramp="downHold"></label>
-            </div>
-            <label class="field" id="rampShoreList" hidden>Shore ramp-down — συνολικό setpoint m³/h, μετάβαση min, hold min, pump ID ή όνομα
-              <textarea data-ramp="shoreDown" rows="4" placeholder="9000,5,10,SP1&#10;6000,5,10,SP2&#10;3000,5,10,SP3&#10;0,5,0,SP4"></textarea></label>
+        <details class="card">
+          <summary>Αναλυτικό πλάνο μεταφοράς</summary>
+          <div class="grid-form ops-fields">
+            <label class="field">Μέγιστο terminal rate (m³/h)<input type="number" min="0" step="any" data-transfer-field="terminal"></label>
+            <label class="field">Κοινό όριο manifold / arms (m³/h)<input type="number" min="0" step="any" data-transfer-field="manifold"></label>
+            <label class="field">Άλλο κοινό όριο, π.χ. vapour handling σε ισοδύναμη παροχή LNG (m³/h)<input type="number" min="0" step="any" data-transfer-field="vapour"></label>
+            <label class="field">Μέγιστη αύξηση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampUp"></label>
+            <label class="field">Μέγιστη μείωση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampDown"></label>
           </div>
-          <div id="rampShipFields" hidden>
-            <h3>Εκφόρτωση με τις αντλίες του πλοίου</h3>
-            <label class="field">Online pumps — ID, route, παροχή αναφοράς, min, max, stop ROB, ελάχιστο ROB
-              <textarea data-ramp="shipPumps" rows="5" placeholder="T1-A,R1,1200,800,1800,3200,2000&#10;T1-B,R1,1200,800,1800,,1400"></textarea></label>
-            <p class="hint">Παροχές σε m³/h, ROB σε m³ ή στάθμη με επίθημα m, π.χ. 0.8m. Κενό max χρησιμοποιεί το rate της δηλωμένης ομάδας. Για την τελευταία αντλία, ο στόχος είναι το heel του tank. Η παροχή αναφοράς μοιράζει τη ροή μεταξύ των αντλιών και το πλάνο υπολογίζει την απαιτούμενη πραγματική παροχή.</p>
-            <div class="grid-form ops-fields">
-              <label class="field">Σειρά pump stops<input data-ramp="stopOrder" placeholder="T1-A,T2-A,T1-B,T2-B"></label>
-              <label class="field">Παράθυρο ramp-down (min)<input type="number" min="0.01" step="any" data-ramp="stopWindow"></label>
-              <label class="field">Αφετηρία παραθύρου<select data-ramp="stopAnchor"><option value="start">Έναρξη ramp-down · λεπτά / N</option><option value="first">Πρώτο έως τελευταίο stop · λεπτά / (N−1)</option></select></label>
-              <label class="field">Ελάχιστη απόσταση stops (min)<input type="number" min="0" step="any" data-ramp="minStopGap"></label>
-              <label class="field">Μετάβαση πριν από κάθε stop (min)<input type="number" min="0.01" step="any" data-ramp="stopTransition"></label>
-              <label class="field">Διάρκεια bulk (min) · κενό για snapshot ramp-down<input type="number" min="0" step="any" data-ramp="bulkMinutes"></label>
-              <label class="field">Σειρά pump starts (πλήρες πλάνο)<input data-ramp="startOrder" placeholder="T1-A,T2-A,T1-B,T2-B"></label>
-              <label class="field">Απόσταση starts (min)<input type="number" min="0.01" step="any" data-ramp="startGap"></label>
-              <label class="field">Μετάβαση μετά από κάθε start (min)<input type="number" min="0.01" step="any" data-ramp="startTransition"></label>
-              <label class="field">Start notice (min)<input type="number" min="0" step="any" data-ramp="startNotice"></label>
+          <p class="hint">Άφησε κενό ένα προαιρετικό όριο που δεν έχεις. Κάθε διαδρομή συνδέει μία δεξαμενή με κοινά στοιχεία της γραμμής. Χρησιμοποίησε απλά αναγνωριστικά, π.χ. T1, P1, V1 και R1.</p>
+          <details class="ramp-panel" id="rampGuided">
+            <summary>Καθοδηγούμενο πλάνο ramp &amp; tank sequence</summary>
+            <p class="hint">Χρησιμοποίησε τους παρακάτω πίνακες Δεξαμενών, Αντλιών, Βαλβίδων και Routes για τα δεδομένα του πλοίου. Οι ρυθμίσεις του πλάνου αποθηκεύονται μαζί με το ταξίδι.</p>
+            <div id="rampShoreFields">
+              <h3>Φόρτωση από τη στεριά</h3>
+              <div class="grid-form ops-fields">
+                <label class="field">Bulk shore rate (m³/h)<input type="number" min="1" step="any" data-ramp="bulkRate"></label>
+                <label class="field">Σειρά route ολοκλήρωσης<input data-ramp="loadingRoutes" placeholder="R1,R2,R3,R4"></label>
+                <label class="field">Λεπτά μεταξύ tank completions<input type="number" min="0.01" step="any" data-ramp="tankGap"></label>
+                <label class="field">Αρχική ανταπόκριση στεριάς (min)<input type="number" min="0" step="any" data-ramp="response"></label>
+                <label class="field">Μέθοδος rate-down<select data-ramp="downStyle"><option value="thousands">By thousands / σταθερό βήμα</option><option value="pumps">By shore pumps</option><option value="custom">Custom / mixed</option></select></label>
+              </div>
+              <label class="field">Shore ramp-up — setpoint m³/h, μετάβαση min, hold min, όνομα (προαιρετικό). Το τελευταίο setpoint ακολουθεί το bulk shore rate.
+                <textarea data-ramp="shoreUp" rows="3" placeholder="3000,5,3&#10;6000,5,3&#10;BULK,8,0"></textarea></label>
+              <div class="grid-form ops-fields" id="rampShoreThousands">
+                <label class="field">Βήμα μείωσης (m³/h)<input type="number" min="1" step="any" data-ramp="downStep"></label>
+                <label class="field">Μετάβαση κάθε μείωσης (min)<input type="number" min="0.01" step="any" data-ramp="downTransition"></label>
+                <label class="field">Hold μεταξύ μειώσεων (min)<input type="number" min="0" step="any" data-ramp="downHold"></label>
+              </div>
+              <label class="field" id="rampShoreList" hidden>Shore ramp-down — συνολικό setpoint m³/h, μετάβαση min, hold min, pump ID ή όνομα
+                <textarea data-ramp="shoreDown" rows="4" placeholder="9000,5,10,SP1&#10;6000,5,10,SP2&#10;3000,5,10,SP3&#10;0,5,0,SP4"></textarea></label>
             </div>
-            <label class="field">Calibration διορθωμένο για το σενάριο — Tank ID, στάθμη m, όγκος m³
-              <textarea data-ramp="levels" rows="3" placeholder="T1,0.5,900&#10;T1,1.0,1800"></textarea></label>
-            <p class="hint">Στο snapshot βάλε τα τρέχοντα ROB στις Δεξαμενές και τις αντλίες που τρέχουν. Για πλήρες πλάνο βάλε τα ROB στην έναρξη της εκφόρτωσης. Το αναλυτικό calibration εισάγεται ανά tank με αύξουσες τιμές και με το κατάλληλο datum, trim και list. Για κάθε tank που συμπληρώνεις εδώ, χρησιμοποιούνται αυτά τα σημεία αντί της σελίδας αναφοράς του προφίλ.</p>
-          </div>
-          <label class="field">Rate-down / pump-stop notice (min)<input type="number" min="0" step="any" data-ramp="notice"></label>
-          <button class="btn primary" type="button" id="rampCalculate">Υπολογισμός</button>
-          <details class="ramp-balance">
-            <summary>Κατανομή με στόχο διαφοράς % πλήρωσης</summary>
-            <div class="grid-form ops-fields">
-              <label class="field">Τρόπος<select data-ramp="balanceStyle"><option value="target">Δημιούργησε διαφορά</option><option value="maintain">Διατήρησε την τρέχουσα διαφορά</option></select></label>
-              <label class="field">Routes<input data-ramp="balanceRoutes" placeholder="R1,R2,R3,R4"></label>
-              <label class="field">Tank αναφοράς<input data-ramp="reference" placeholder="T4"></label>
-              <label class="field">Στόχοι σε ποσοστιαίες μονάδες<input data-ramp="balanceOffsets" placeholder="T1:2,T2:0,T3:0"></label>
-              <label class="field">Συνολική παροχή (m³/h)<input type="number" min="1" step="any" data-ramp="balanceRate"></label>
-              <label class="field">Διάρκεια (min)<input type="number" min="0.01" step="any" data-ramp="balanceMinutes"></label>
+            <div id="rampShipFields" hidden>
+              <h3>Εκφόρτωση με τις αντλίες του πλοίου</h3>
+              <label class="field">Online pumps — ID, route, παροχή αναφοράς, min, max, stop ROB, ελάχιστο ROB
+                <textarea data-ramp="shipPumps" rows="5" placeholder="T1-A,R1,1200,800,1800,3200,2000&#10;T1-B,R1,1200,800,1800,,1400"></textarea></label>
+              <p class="hint">Παροχές σε m³/h, ROB σε m³ ή στάθμη με επίθημα m, π.χ. 0.8m. Κενό max χρησιμοποιεί το rate της δηλωμένης ομάδας. Για την τελευταία αντλία, ο στόχος είναι το heel του tank. Η παροχή αναφοράς μοιράζει τη ροή μεταξύ των αντλιών και το πλάνο υπολογίζει την απαιτούμενη πραγματική παροχή.</p>
+              <div class="grid-form ops-fields">
+                <label class="field">Σειρά pump stops<input data-ramp="stopOrder" placeholder="T1-A,T2-A,T1-B,T2-B"></label>
+                <label class="field">Παράθυρο ramp-down (min)<input type="number" min="0.01" step="any" data-ramp="stopWindow"></label>
+                <label class="field">Αφετηρία παραθύρου<select data-ramp="stopAnchor"><option value="start">Έναρξη ramp-down · λεπτά / N</option><option value="first">Πρώτο έως τελευταίο stop · λεπτά / (N−1)</option></select></label>
+                <label class="field">Ελάχιστη απόσταση stops (min)<input type="number" min="0" step="any" data-ramp="minStopGap"></label>
+                <label class="field">Μετάβαση πριν από κάθε stop (min)<input type="number" min="0.01" step="any" data-ramp="stopTransition"></label>
+                <label class="field">Διάρκεια bulk (min) · κενό για snapshot ramp-down<input type="number" min="0" step="any" data-ramp="bulkMinutes"></label>
+                <label class="field">Σειρά pump starts (πλήρες πλάνο)<input data-ramp="startOrder" placeholder="T1-A,T2-A,T1-B,T2-B"></label>
+                <label class="field">Απόσταση starts (min)<input type="number" min="0.01" step="any" data-ramp="startGap"></label>
+                <label class="field">Μετάβαση μετά από κάθε start (min)<input type="number" min="0.01" step="any" data-ramp="startTransition"></label>
+                <label class="field">Start notice (min)<input type="number" min="0" step="any" data-ramp="startNotice"></label>
+              </div>
+              <label class="field">Calibration διορθωμένο για το σενάριο — Tank ID, στάθμη m, όγκος m³
+                <textarea data-ramp="levels" rows="3" placeholder="T1,0.5,900&#10;T1,1.0,1800"></textarea></label>
+              <p class="hint">Στο snapshot βάλε τα τρέχοντα ROB στις Δεξαμενές και τις αντλίες που τρέχουν. Για πλήρες πλάνο βάλε τα ROB στην έναρξη της εκφόρτωσης. Το αναλυτικό calibration εισάγεται ανά tank με αύξουσες τιμές και με το κατάλληλο datum, trim και list. Για κάθε tank που συμπληρώνεις εδώ, χρησιμοποιούνται αυτά τα σημεία αντί της σελίδας αναφοράς του προφίλ.</p>
             </div>
-            <button class="btn" type="button" id="rampBalanceRun">Υπολογισμός παροχής ανά tank</button>
-          </details>
-          <p id="rampFeedback" aria-live="polite"></p>
-          <section id="rampOutput" hidden>
-            <h3 id="rampTitle"></h3><p id="rampSummary"></p><ul id="rampIssues"></ul>
-            <section id="shoreRequestPanel" hidden>
-              <h4>Πίνακας αιτημάτων μείωσης προς shore</h4>
-              <p id="shoreRequestFinish"></p>
-              <p class="hint">Οι όγκοι αφορούν την ώρα του αιτήματος. Η ώρα αιτήματος προηγείται της μείωσης κατά το notice και, στο πρώτο βήμα, κατά τον χρόνο αρχικής ανταπόκρισης. Μετά τον πρώτο υπολογισμό, ο πίνακας ενημερώνεται όταν αλλάζουν τα δεδομένα.</p>
-              <div class="table-wrap"><table class="data-table" id="shoreRequestTable"></table></div>
+            <label class="field">Rate-down / pump-stop notice (min)<input type="number" min="0" step="any" data-ramp="notice"></label>
+            <button class="btn primary" type="button" id="rampCalculate">Υπολογισμός</button>
+            <details class="ramp-balance">
+              <summary>Κατανομή με στόχο διαφοράς % πλήρωσης</summary>
+              <div class="grid-form ops-fields">
+                <label class="field">Τρόπος<select data-ramp="balanceStyle"><option value="target">Δημιούργησε διαφορά</option><option value="maintain">Διατήρησε την τρέχουσα διαφορά</option></select></label>
+                <label class="field">Routes<input data-ramp="balanceRoutes" placeholder="R1,R2,R3,R4"></label>
+                <label class="field">Tank αναφοράς<input data-ramp="reference" placeholder="T4"></label>
+                <label class="field">Στόχοι σε ποσοστιαίες μονάδες<input data-ramp="balanceOffsets" placeholder="T1:2,T2:0,T3:0"></label>
+                <label class="field">Συνολική παροχή (m³/h)<input type="number" min="1" step="any" data-ramp="balanceRate"></label>
+                <label class="field">Διάρκεια (min)<input type="number" min="0.01" step="any" data-ramp="balanceMinutes"></label>
+              </div>
+              <button class="btn" type="button" id="rampBalanceRun">Υπολογισμός παροχής ανά tank</button>
+            </details>
+            <p id="rampFeedback" aria-live="polite"></p>
+            <section id="rampOutput" hidden>
+              <h3 id="rampTitle"></h3><p id="rampSummary"></p><ul id="rampIssues"></ul>
+              <section id="shoreRequestPanel" hidden>
+                <h4>Πίνακας αιτημάτων μείωσης προς shore</h4>
+                <p id="shoreRequestFinish"></p>
+                <p class="hint">Οι όγκοι αφορούν την ώρα του αιτήματος. Η ώρα αιτήματος προηγείται της μείωσης κατά το notice και, στο πρώτο βήμα, κατά τον χρόνο αρχικής ανταπόκρισης. Μετά τον πρώτο υπολογισμό, ο πίνακας ενημερώνεται όταν αλλάζουν τα δεδομένα.</p>
+                <div class="table-wrap"><table class="data-table" id="shoreRequestTable"></table></div>
+              </section>
+              <label class="field">Εστίαση γραφήματος<select id="rampView"><option value="all">Όλη η μεταφορά</option><option value="up">Ramp-up</option><option value="down">Ramp-down / topping-off</option></select></label>
+              <div id="rampPlot"></div>
+              <div id="rampOffsetChart"></div>
+              <div class="table-wrap"><table class="data-table" id="rampOffsets"></table></div>
+              <div class="table-wrap"><table class="data-table" id="rampEvents"></table></div>
+              <div class="table-wrap"><table class="data-table" id="rampRates"></table></div>
             </section>
-            <label class="field">Εστίαση γραφήματος<select id="rampView"><option value="all">Όλη η μεταφορά</option><option value="up">Ramp-up</option><option value="down">Ramp-down / topping-off</option></select></label>
-            <div id="rampPlot"></div>
-            <div id="rampOffsetChart"></div>
-            <div class="table-wrap"><table class="data-table" id="rampOffsets"></table></div>
-            <div class="table-wrap"><table class="data-table" id="rampEvents"></table></div>
-            <div class="table-wrap"><table class="data-table" id="rampRates"></table></div>
-          </section>
+          </details>
+          <div id="transferInputs"></div>
+          <div class="ops-actions"><button class="btn" type="button" id="transferTemplate">Πρότυπο 3 σταδίων</button><button class="btn primary" type="button" id="transferRun">Υπολογισμός πλάνου</button></div>
+          <div id="transferStatus" aria-live="polite"></div>
+          <div id="transferResults" hidden>
+            <div id="transferBars"></div>
+            <div class="table-wrap"><table class="data-table" id="transferStageResults"></table></div>
+            <div class="table-wrap"><table class="data-table" id="transferTankResults"></table></div>
+          </div>
         </details>
-        <div id="transferInputs"></div>
-        <div class="ops-actions"><button class="btn" type="button" id="transferTemplate">Πρότυπο 3 σταδίων</button><button class="btn primary" type="button" id="transferRun">Υπολογισμός πλάνου</button></div>
-        <div id="transferStatus" aria-live="polite"></div>
-        <div id="transferResults" hidden>
-          <div id="transferBars"></div>
-          <div class="table-wrap"><table class="data-table" id="transferStageResults"></table></div>
-          <div class="table-wrap"><table class="data-table" id="transferTankResults"></table></div>
-        </div>
       </div>
       <details class="card" id="quickDischarge">
-        <summary>Γρήγορη εκτίμηση εκφόρτωσης &amp; heel</summary>
+        <summary>Προχωρημένες επιλογές · Εκτίμηση εκφόρτωσης και stripping</summary>
       <div class="card">
         <h2>Πρόγραμμα εκφόρτωσης &amp; heel</h2>
         <p class="hint">Μπορείς να βάλεις ποσότητα εκφόρτωσης ή στόχο heel. Οι ώρες ramp-up/down μοντελοποιούνται γραμμικά μεταξύ μηδενικής παροχής και της μέγιστης παροχής τερματικού. Η ποσότητα stripping περιλαμβάνεται στην ποσότητα προς εκφόρτωση.</p>
@@ -695,12 +700,6 @@
 <label class="field">Πρόσθετη απώλεια LNG κατά την εκφόρτωση (m³)<input type="number" id="discLoss" min="0" step="any"></label></div>        <div class="ops-actions"><button type="button" class="btn primary" id="discCompute">Υπολογισμός εκφόρτωσης</button><button type="button" class="btn" id="discUseForecast">Χρήση προβλεπόμενου LNG ROB άφιξης</button></div>
         <p id="discStatus" aria-live="polite"></p>
         <div class="table-wrap"><table class="data-table" id="discResult"></table></div>
-      </div>
-      <div class="card">
-        <h2>Προαιρετικό ισοζύγιο δεξαμενών</h2>
-        <p class="hint">Βάλε αρχικό όγκο, προγραμματισμένο heel και, προαιρετικά, τις εγκεκριμένες τιμές min/max heel από τα στοιχεία του πλοίου. Ο έλεγχος αφορά τις ποσότητες που εισάγεις.</p>
-        <div class="table-wrap"><table class="data-table" id="discTanks"></table></div>
-        <div class="ops-actions"><button type="button" class="btn " id="discAddTank">Προσθήκη δεξαμενής</button></div>
       </div>
       </details>
     </section>
@@ -723,7 +722,7 @@
 
   <script src="js/ports.js"></script>
   <script src="js/app.js?v=11"></script>
-  <script src="js/operations.js"></script>
+  <script src="js/operations.js?v=13"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
   <script src="js/transfer.js?v=12"></script>
