@@ -26,15 +26,15 @@ const transferTables = {
   },
   routes: {
     title: "Διαδρομές μεταφοράς",
-    hint: "Πρόσθεσε μόνο εγκεκριμένα setups. Βάλε προαιρετικά μία ομάδα αντλιών και τις βαλβίδες ή γραμμές σε σειρά, π.χ. V1,V2. Μία διαδρομή αντιστοιχεί σε μία δεξαμενή.",
-    fields: [["id", "Route"], ["tank", "Tank ID"], ["pump", "Pump group ID"], ["valves", "Valve / line IDs"],
+    hint: "Πρόσθεσε μόνο εγκεκριμένα setups. Επίλεξε προαιρετικά ομάδα αντλιών και τις βαλβίδες ή γραμμές που χρησιμοποιεί η διαδρομή. Μία διαδρομή αντιστοιχεί σε μία δεξαμενή.",
+    fields: [["id", "Route"], ["tank", "Tank ID"], ["pump", "Pump group ID"], ["valves", "Βαλβίδες / γραμμές"],
       ["rate", "Όριο διαδρομής m³/h", "number"], ["setup", "Αναφορά setup / σημείωση"]],
   },
   stages: {
     title: "Στάδια με τη σειρά εκτέλεσης",
-    hint: "Δήλωσε αρχική και τελική παροχή και διάρκεια ανά στάδιο. Μοίρασε την παροχή π.χ. R1:60,R2:40. Η κατανομή μένει σταθερή μέσα στο στάδιο. Στο «Αντλίες σε λειτουργία» βάλε π.χ. P1:1. Κενό χρησιμοποιεί όλες τις διαθέσιμες αντλίες της ενεργής ομάδας. Κενή διάρκεια σε ένα μόνο στάδιο σταθερής θετικής παροχής υπολογίζει τον χρόνο από τους στόχους των tanks.",
+    hint: "Δήλωσε αρχική και τελική παροχή και διάρκεια ανά στάδιο. Συμπλήρωσε το ποσοστό δίπλα σε κάθε ενεργή διαδρομή. Κενό πλήθος αντλιών χρησιμοποιεί όλες τις διαθέσιμες της ενεργής ομάδας. Κενή διάρκεια σε ένα μόνο στάδιο σταθερής θετικής παροχής υπολογίζει τον χρόνο από τους στόχους των tanks.",
     fields: [["kind", "Στάδιο", "kind"], ["minutes", "Λεπτά", "number"], ["start", "Αρχή m³/h", "number"],
-      ["end", "Τέλος m³/h", "number"], ["split", "Route ID : %"], ["online", "Αντλίες σε λειτουργία"],
+      ["end", "Τέλος m³/h", "number"], ["split", "Κατανομή ανά διαδρομή (%)"], ["online", "Αντλίες σε λειτουργία"],
       ["cap", "Όριο σταδίου m³/h", "number"]],
   },
 };
@@ -277,6 +277,33 @@ function txInput(key, rowIndex, row, field, calibratedRow = row) {
   const attrs = `aria-label="${opsEscape(label)} · ${rowIndex + 1}" data-transfer-table="${key}" data-transfer-row="${rowIndex}" data-transfer-key="${name}"`;
   if (type === "kind") return `<select ${attrs}>${optionsHtml(Object.entries(transferKinds), row[name] ?? "up")}</select>`;
   if (type === "checkbox") return `<input ${attrs} type="checkbox" ${row[name] !== false ? "checked" : ""}>`;
+  const plan = transferPlan();
+  const tankName = id => typeof pickerTankLabel === "function" ? pickerTankLabel(id) : cargoTankLabel(id);
+  if (key === "tanks" && name === "id") {
+    const available = ["T1", "T2", "T3", "T4"].filter(id => !plan.tanks.some(tank => tank !== row && tank.id === id));
+    const ids = [...new Set([row.id, ...available].filter(Boolean))];
+    return `<select ${attrs}>${optionsHtml(ids.map(id => [id, tankName(id)]), row.id)}</select>`;
+  }
+  if (key === "routes" && ["tank", "pump", "valves"].includes(name)) {
+    if (name === "valves") {
+      const selected = String(row.valves ?? "").split(",").map(id => id.trim()).filter(Boolean);
+      const ids = [...new Set([...plan.valves.map(line => line.id), ...selected].filter(Boolean))];
+      return ids.map(id => `<label><input ${attrs} type="checkbox" data-transfer-line="${opsEscape(id)}" ${selected.includes(id) ? "checked" : ""}> ${opsEscape(id)}</label>`).join(" ") || "—";
+    }
+    const rows = name === "tank" ? plan.tanks : plan.pumps;
+    const ids = [...new Set([...rows.map(item => item.id), row[name]].filter(Boolean))];
+    return `<select ${attrs}>${optionsHtml([["", "—"], ...ids.map(id => [id, name === "tank" ? tankName(id) : id])], row[name] ?? "")}</select>`;
+  }
+  if (key === "stages" && ["split", "online"].includes(name)) {
+    const values = txPairs(row[name], label, []);
+    const entries = name === "split" ? plan.routes : plan.pumps;
+    const ids = [...new Set([...entries.map(item => item.id), ...values.keys()].filter(Boolean))];
+    return ids.map(id => {
+      const route = name === "split" ? plan.routes.find(item => item.id === id) : null;
+      const title = route?.tank ? tankName(route.tank) + " · " + id : id;
+      return `<label class="field">${opsEscape(title)}<input ${attrs} aria-label="${opsEscape(label + " · " + title)}" type="number" min="0" ${name === "split" ? 'max="100" step="any"' : 'step="1"'} inputmode="decimal" data-transfer-pair="${opsEscape(id)}" value="${opsEscape(values.get(id) ?? "")}"></label>`;
+    }).join("") || "—";
+  }
   const number = type === "number" ? 'min="0" step="any" inputmode="decimal"' : "";
   const labelText = typeof cargoTankLabel === "function" && (key === "tanks" && name === "id" || key === "routes" && name === "tank")
     ? cargoTankLabel(row[name]) : row[name];
@@ -386,13 +413,42 @@ function syncTransferPlanner() {
 function editTransferField(event) {
   const input = event.target;
   const { transferField, transferTable, transferRow, transferKey } = input.dataset;
-  if (!transferField && !transferTable) return;
+  if (!transferField && !transferTable || input.tagName === "SELECT" && event.type === "input") return;
   const plan = transferPlan();
   if (transferField) plan[transferField] = input.value;
-  else plan[transferTable][Number(transferRow)][transferKey] = input.type === "checkbox" ? input.checked : input.value;
+  else {
+    const row = plan[transferTable][Number(transferRow)];
+    const { transferLine, transferPair } = input.dataset;
+    if (transferLine) {
+      const lines = new Set(String(row.valves ?? "").split(",").map(id => id.trim()).filter(Boolean));
+      if (input.checked) lines.add(transferLine);
+      else lines.delete(transferLine);
+      row.valves = [...lines].join(",");
+    } else if (transferPair) {
+      const values = txPairs(row[transferKey], transferKey, []);
+      if (input.value === "") values.delete(transferPair);
+      else values.set(transferPair, input.value);
+      row[transferKey] = [...values].map(([id, amount]) => id + ":" + amount).join(",");
+    } else {
+      const old = row[transferKey];
+      row[transferKey] = input.type === "checkbox" ? input.checked : input.value;
+      if (transferTable === "tanks" && transferKey === "id" && old !== input.value) {
+        for (const route of plan.routes) if (route.tank === old) route.tank = input.value;
+        if (plan.form?.drainTank === old) plan.form.drainTank = input.value;
+        if (plan.form?.pumpData) plan.form.pumpData = plan.form.pumpData.split(/\r?\n/).map(line => {
+          const cells = line.split(",");
+          if (cells[1]?.trim() === old) {
+            if (cells[0].startsWith(old + "-")) cells[0] = input.value + cells[0].slice(old.length);
+            cells[1] = input.value;
+          }
+          return cells.join(",");
+        }).join("\n");
+      }
+    }
+  }
   if ((transferTable === "tanks" && ["id", "max"].includes(transferKey)) ||
       (transferTable === "routes" && transferKey === "tank")) {
-    if (event.type === "change" && typeof cargoCalibration === "function" && cargoCalibration()) renderTransferTables();
+    if (event.type === "change") renderTransferTables();
   }
   clearTransferResults(true);
 }
@@ -419,6 +475,7 @@ function transferTableAction(event) {
   } else return;
   renderTransferTables();
   clearTransferResults(true);
+  if (typeof renderRampForms === "function") renderRampForms(true);
 }
 
 function applyTransferTemplate() {

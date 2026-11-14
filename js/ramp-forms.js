@@ -163,6 +163,7 @@ function renderRampForms(sync = false) {
   const plan = transferPlan();
   const loading = S.transfer.mode !== "unloading";
   const config = { ...rampFormDefaults, ...plan.form };
+  if (sync) renderRampPickers(plan);
   if (sync) for (const input of panel.querySelectorAll("[data-form]")) {
     input.value = config[input.dataset.form] ?? "";
   }
@@ -200,7 +201,7 @@ function renderRampForms(sync = false) {
       const level = row.tank && !combined
         ? levelModel?.interpolateLevel(row.tank, row.tankRob, 1)
         : null;
-      return [...common, row.tank ? cargoTankLabel(row.tank) : "—", fmt(row.tankRob, 2), fmt(level, 3),
+      return [...common, row.tank ? pickerTankLabel(row.tank) : "—", fmt(row.tankRob, 2), fmt(level, 3),
         row.running ?? "—", fmt(row.rob - result.rows.at(-1).rob, 2)];
     });
     $("formRows").innerHTML = tableHtml(headers, rows);
@@ -225,12 +226,105 @@ document.addEventListener("DOMContentLoaded", () => {
   panel.addEventListener("toggle", () => renderRampForms(true));
   panel.addEventListener("input", event => {
     const key = event.target.dataset.form;
-    if (!key) return;
+    if (!key) return editRampPicker(event);
     (transferPlan().form ??= {})[key] = event.target.value;
-    renderRampForms();
+    renderRampForms(event.target.tagName === "SELECT");
     if (typeof renderLinkedVoyage === "function") renderLinkedVoyage();
   });
+  panel.addEventListener("change", editRampPicker);
+  panel.addEventListener("click", editRampPicker);
   $("transferPlanner").addEventListener("change", event => {
-    if (!event.target.closest("#rampForms")) renderRampForms(event.target.id === "transferMode");
+    if (!event.target.closest("#rampForms")) renderRampForms(true);
   });
 });
+
+const standardTankIds = ["T1", "T2", "T3", "T4"];
+const standardShoreIds = Array.from({ length: 16 }, (_, i) => "SP" + (i + 1));
+const pickerGroups = { tank: "tankData", ship: "pumpData", shore: "shorePumps" };
+const pickerTankLabel = id => cargoTankLabel(id) === id && /^T[1-4]$/.test(id) ? "Cargo Tank " + id.slice(1) : cargoTankLabel(id);
+
+function renderRampPickers(plan) {
+  const config = plan.form ?? {};
+  const linked = config.linked === "plan";
+  const tanks = parseFormRows(config.tankData);
+  const ship = parseFormRows(config.pumpData);
+  const shore = parseFormRows(config.shorePumps);
+  const tankIds = [...new Set(linked ? plan.tanks.map(tank => tank.id).filter(Boolean) : [...standardTankIds, ...tanks.map(([id]) => id)])];
+  const active = new Set(linked ? tankIds : tanks.map(([id]) => id));
+  const options = (ids, selected, label) => ids.map(id =>
+    `<option value="${opsEscape(id)}"${selected === id ? " selected" : ""}>${opsEscape(label(id))}</option>`).join("");
+  const number = (group, index, column, label, value, minimum = 0) =>
+    `<label class="field">${label}<input type="number" inputmode="decimal" min="${minimum}" step="any" data-picker="${group}" data-index="${index}" data-column="${column}" value="${opsEscape(value ?? "")}"></label>`;
+  const button = (action, index, text, label, disabled = false) =>
+    `<button type="button" class="btn small" data-picker-action="${action}" data-index="${index}" aria-label="${label}" ${disabled ? "disabled" : ""}>${text}</button>`;
+  const controls = (group, i, n) => `<div class="ops-actions">${button(group + "-up", i, "↑", "Μετακίνηση επάνω", !i)}${button(group + "-down", i, "↓", "Μετακίνηση κάτω", i === n - 1)}${button(group + "-remove", i, "×", "Αφαίρεση")}</div>`;
+  const drain = $("formDrainTank").querySelector("select");
+  const drainIds = [...new Set([...plan.tanks.map(tank => tank.id).filter(Boolean), ...(config.drainTank ? [config.drainTank] : [])])];
+  drain.innerHTML = '<option value="">Επίλεξε δεξαμενή</option>' + options(drainIds, config.drainTank, pickerTankLabel);
+  $("formTankData").innerHTML = tankIds.map(id => {
+    const index = tanks.findIndex(row => row[0] === id);
+    const row = tanks[index] ?? [];
+    return `<fieldset><legend>${opsEscape(pickerTankLabel(id))}</legend>
+      <label><input type="checkbox" data-picker-action="tank-toggle" data-id="${opsEscape(id)}" ${index >= 0 ? "checked" : ""}> Συμμετέχει</label>
+      ${index < 0 ? "" : `<div class="grid-form">${number("tank", index, 1, "Αρχικό ROB (m³)", row[1])}${number("tank", index, 2, "Heel (m³)", row[2])}</div>`}</fieldset>`;
+  }).join("");
+  $("shipPumpChecks").innerHTML = tankIds.filter(id => active.has(id)).map(id => `<fieldset><legend>${opsEscape(pickerTankLabel(id))}</legend>
+    ${["A", "B"].map(letter => {
+      const pumpId = id + "-" + letter;
+      return `<label><input type="checkbox" data-picker-action="ship-toggle" data-id="${opsEscape(pumpId)}" data-tank="${opsEscape(id)}" ${ship.some(row => row[0] === pumpId) ? "checked" : ""}> Pump ${letter}</label>`;
+    }).join(" &nbsp; ")}</fieldset>`).join("");
+  $("shipPumpRows").innerHTML = ship.map(([id, tank, rate], i) =>
+    `<fieldset><legend>${i + 1}. ${opsEscape(pickerTankLabel(tank))} · ${opsEscape(id.startsWith(tank + "-") ? "Pump " + id.slice(tank.length + 1) : id)}</legend>
+    <div class="grid-form">${number("ship", i, 2, "Παροχή (m³/h)", rate, 1)}</div>${controls("ship", i, ship.length)}</fieldset>`).join("");
+  $("shorePumpRows").innerHTML = shore.map(([id, rate, minutes], i) => {
+    const occupied = new Set(shore.filter((_, index) => i !== index).map(row => row[0]));
+    const ids = [...new Set([...standardShoreIds, id])].filter(item => !occupied.has(item) || item === id);
+    return `<fieldset><legend>Βήμα ${i + 1}</legend><div class="grid-form">
+      <label class="field">Αντλία στεριάς<select data-picker="shore" data-index="${i}" data-column="0">${options(ids, id, value => value.replace(/^SP(\d+)$/, "Shore Pump $1"))}</select></label>
+      ${number("shore", i, 1, "Νέα συνολική παροχή (m³/h)", rate, 1)}
+      ${number("shore", i, 2, "Hold (min)", minutes, 0.01)}</div>${controls("shore", i, shore.length)}</fieldset>`;
+  }).join("");
+  $("formShorePumps").querySelector('[data-picker-action="shore-add"]').disabled = standardShoreIds.every(id => shore.some(row => row[0] === id));
+}
+
+function editRampPicker(event) {
+  const input = event.target.closest("[data-picker], [data-picker-action]");
+  if (!input) return;
+  const { picker, pickerAction: action, index, column, id, tank } = input.dataset;
+  if (action && event.type !== (input.type === "checkbox" ? "change" : "click")) return;
+  if (picker && event.type !== "input") return;
+  const config = transferPlan().form ??= {};
+  const group = picker || (action === "apply-rate" ? "ship" : action.split("-")[0]);
+  const key = pickerGroups[group];
+  const rows = parseFormRows(config[key]);
+  const i = Number(index);
+  const save = (field, values) => { config[field] = values.map(row => row.join(",")).join("\n"); };
+  if (picker) rows[i][Number(column)] = input.value;
+  else if (action === "tank-toggle") {
+    if (input.checked) rows.push([id, "", ""]);
+    else {
+      rows.splice(rows.findIndex(row => row[0] === id), 1);
+      save("pumpData", parseFormRows(config.pumpData).filter(row => row[1] !== id));
+    }
+  } else if (action === "ship-toggle") {
+    if (input.checked) rows.push([id, tank, ""]);
+    else rows.splice(rows.findIndex(row => row[0] === id), 1);
+  } else if (action === "shore-add") {
+    const next = standardShoreIds.find(candidate => rows.every(row => row[0] !== candidate));
+    if (!next) return;
+    rows.push([next, "", "5"]);
+  } else if (action === "apply-rate") {
+    const rate = $("commonPumpRate");
+    if (!rate.value || !rate.reportValidity()) return;
+    for (const row of rows) row[2] = rate.value;
+  } else if (action.endsWith("-remove")) rows.splice(i, 1);
+  else {
+    const destination = i + (action.endsWith("-up") ? -1 : 1);
+    if (destination < 0 || destination >= rows.length) return;
+    const [moved] = rows.splice(i, 1);
+    rows.splice(destination, 0, moved);
+  }
+  save(key, rows);
+  renderRampForms(!picker || input.tagName === "SELECT");
+  if (typeof renderLinkedVoyage === "function") renderLinkedVoyage();
+}
