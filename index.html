@@ -143,7 +143,7 @@
         <summary><strong>Πλήρες ταξίδι · Φόρτωση → Laden → Εκφόρτωση → Ballast</strong></summary>
         <p class="hint">Χρησιμοποίησε τα παραπάνω σκέλη για τον Laden πλου και τα πλάνα φόρτωσης και εκφόρτωσης από το Cargo Transfer. Η επιστροφή ξεκινά από το λιμάνι εκφόρτωσης με αντίστροφη διαδρομή και δικές της ρυθμίσεις.</p>
         <div class="grid-form">
-          <label class="field">Πλάνα Cargo Transfer<select data-linked="method"><option value="guided">Καθοδηγούμενο ramp</option><option value="staged">Χειροκίνητα στάδια</option></select></label>
+          <label class="field">Πλάνα Cargo Transfer<select data-linked="method"><option value="guided">Καθοδηγούμενο ramp</option><option value="staged">Χειροκίνητα στάδια</option><option value="forms">Φόρμες ramp-down</option></select></label>
           <label class="field">Ταχύτητα επιστροφής Ballast (kn)<input data-linked="speed" type="number" min="0.01" step="any" placeholder="Ταχύτητα υπηρεσίας"></label>
           <label class="field">Μείωση LNG από το τέλος φόρτωσης μέχρι την αναχώρηση Laden (m³)<input data-linked="loaded" type="number" min="0" step="any" placeholder="0"></label>
           <label class="field">Μείωση LNG μετά την άφιξη και πριν από την έναρξη εκφόρτωσης (m³)<input data-linked="before" type="number" min="0" step="any" placeholder="0"></label>
@@ -549,6 +549,52 @@
           <label class="field">Μέγιστη μείωση παροχής (m³/h ανά λεπτό)<input type="number" min="0" step="any" data-transfer-field="rampDown"></label>
         </div>
         <p class="hint">Άφησε κενό ένα προαιρετικό όριο που δεν έχεις. Κάθε διαδρομή συνδέει μία δεξαμενή με κοινά στοιχεία της γραμμής. Χρησιμοποίησε απλά αναγνωριστικά, π.χ. T1, P1, V1 και R1.</p>
+        <details class="ramp-panel" id="rampForms">
+          <summary>Φόρμες ramp-down · Φόρτωση / Εκφόρτωση</summary>
+          <p class="hint">Εκτίμηση με βηματικές αλλαγές παροχής. Στη φόρτωση η ώρα αναφοράς είναι η έναρξη του bulk. Στην εκφόρτωση είναι η έναρξη του bulk πριν το πρώτο stop. Χρησιμοποίησε το καθοδηγούμενο πλάνο για αναλυτικά ramp-up, μεταβάσεις και όρια ανά γραμμή.</p>
+          <div class="grid-form">
+            <label class="field">Πηγή ROB και στόχων<select data-form="linked"><option value="">Χειροκίνητα</option><option value="plan">Πλάνο δεξαμενών Cargo Transfer</option></select></label>
+            <label class="field">Ημερομηνία και ώρα αναφοράς (UTC)<input type="datetime-local" data-form="reference"></label>
+          </div>
+          <div class="grid-form" id="formManualVolumes">
+            <label class="field" id="formInitial">Αρχικό ROB (m³)<input type="number" min="0" step="any" data-form="initial"></label>
+            <label class="field" id="formTarget">Τελικό φορτίο μετά το drain / heel εκφόρτωσης (m³)<input type="number" min="0" step="any" data-form="target"></label>
+          </div>
+          <section id="formLoading">
+            <div class="grid-form">
+              <label class="field">Bulk shore rate (m³/h)<input type="number" min="1" step="any" data-form="bulk"></label>
+              <label class="field">Μειώσεις<select data-form="style"><option value="thousands">Σταθερό βήμα</option><option value="pumps">Ανά αντλία στεριάς</option></select></label>
+              <label class="field">Βήμα (m³/h)<input type="number" min="1" step="any" data-form="step"></label>
+              <label class="field">Hold (min)<input type="number" min="0.01" step="any" data-form="hold"></label>
+              <label class="field">Notices πριν την πρώτη μείωση (min)<input data-form="notices" placeholder="60,30,10"></label>
+              <label class="field">Drain γραμμών (m³)<input type="number" min="0" step="any" data-form="drain"></label>
+              <label class="field">Διάρκεια drain (min)<input type="number" min="0" step="any" data-form="drainMinutes"></label>
+              <label class="field" id="formDrainTank">Tank υποδοχής drain<input data-form="drainTank" placeholder="T4"></label>
+            </div>
+            <label class="field" id="formShorePumps">Shore pump ID, νέα συνολική παροχή, hold min<textarea data-form="shorePumps" rows="3" placeholder="SP1,9000,5&#10;SP2,6000,5"></textarea>Το τελικό stop γίνεται μετά το τελευταίο hold.</label>
+          </section>
+          <section id="formUnloading" hidden>
+            <p class="hint">Table A χρησιμοποιεί ίσες παροχές. Table B χρησιμοποιεί τη σειρά και τις παροχές που δίνεις. Το bulk του Table B κατανέμεται ώστε τα tanks να φτάσουν μαζί στα ROB έναρξης ramp-down, χωρίς να ξεπεραστεί η παροχή των αντλιών κάθε tank.</p>
+            <div class="grid-form">
+              <label class="field">Ανάλυση<select data-form="detail"><option value="total">Table A · Σύνολο</option><option value="tanks">Table B · Ανά tank</option></select></label>
+              <label class="field">Όριο παροχής (m³/h)<input type="number" min="1" step="any" data-form="limit"></label>
+              <label class="field">Χρονισμός<select data-form="timing"><option value="gap">Σταθερό διάστημα</option><option value="window">Συνολικό παράθυρο</option></select></label>
+              <label class="field" id="formGap">Διάστημα stops (min)<input type="number" min="0.01" step="any" data-form="gap"></label>
+              <label class="field" id="formWindow">Παράθυρο (min)<input type="number" min="0.01" step="any" data-form="window"></label>
+              <label class="field" id="formAnchor">Αφετηρία<select data-form="anchor"><option value="first">Πρώτο stop · N−1</option><option value="start">Ένα διάστημα πριν από το πρώτο · N</option></select></label>
+              <label class="field">Notice πριν από το ramp-down (min)<input type="number" min="0" step="any" data-form="dischargeNotice"></label>
+            </div>
+            <div class="grid-form" id="formAggregate">
+              <label class="field">Αριθμός αντλιών<input type="number" min="1" max="64" data-form="count"></label>
+              <label class="field">Συνολική παροχή (m³/h)<input type="number" min="1" step="any" data-form="totalRate"></label>
+            </div>
+            <label class="field" id="formTankData">Tank ID, αρχικό ROB m³, heel m³<textarea data-form="tankData" rows="4" placeholder="T1,24900,200&#10;T2,47000,200"></textarea></label>
+            <label class="field" id="formPumpData">Pump ID, Tank ID, παροχή m³/h · με τη σειρά stop<textarea data-form="pumpData" rows="5" placeholder="P1,T2,1714&#10;P2,T3,1700"></textarea></label>
+          </section>
+          <p id="formStatus" role="status"></p>
+          <div class="table-wrap"><table class="data-table" id="formRows"></table></div>
+          <div id="formBars"></div>
+        </details>
         <details class="ramp-panel" id="rampGuided" open>
           <summary>Καθοδηγούμενο πλάνο ramp &amp; tank sequence</summary>
           <p class="hint">Χρησιμοποίησε τους παρακάτω πίνακες Δεξαμενών, Αντλιών, Βαλβίδων και Routes για τα δεδομένα του πλοίου. Οι ρυθμίσεις του πλάνου αποθηκεύονται μαζί με το ταξίδι.</p>
@@ -680,8 +726,9 @@
   <script src="js/operations.js"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
-  <script src="js/transfer.js"></script>
+  <script src="js/transfer.js?v=12"></script>
   <script src="js/ramp.js"></script>
-  <script src="js/linked.js"></script>
+  <script src="js/ramp-forms.js"></script>
+  <script src="js/linked.js?v=12"></script>
 </body>
 </html>

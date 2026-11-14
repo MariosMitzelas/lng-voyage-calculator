@@ -1,7 +1,7 @@
 "use strict";
 
-const CACHE = "voyagecalc-shell-v11";
-const SHELL = ["./", "./index.html", "./css/style.css", "./js/ports.js", "./js/app.js", "./js/operations.js", "./js/charter.js", "./js/calibration.js", "./js/transfer.js", "./js/ramp.js", "./js/linked.js"];
+const CACHE = "voyagecalc-shell-v12";
+const SHELL = ["./", "./index.html", "./css/style.css", "./js/ports.js", "./js/app.js", "./js/operations.js", "./js/charter.js", "./js/calibration.js", "./js/transfer.js", "./js/ramp.js", "./js/linked.js", "./js/ramp-forms.js"];
 const shellUrls = new Set(SHELL.map((path) => new URL(path, self.registration.scope).href));
 
 self.addEventListener("install", (event) => {
