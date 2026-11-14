@@ -57,7 +57,7 @@
 
       <div class="card">
         <h2><span class="step">1</span>Σκέλη πλόου</h2>
-        <p class="hint">Πρόσθεσε ένα σκέλος για κάθε τμήμα του πλόου. Άνοιξε το Χρονοδιάγραμμα σκέλους για επιθυμητή ταχύτητα και τοπική ώρα άφιξης και αναχώρησης. Η αναχώρηση από τον τελικό προορισμό εμφανίζεται στο πλάνο και η παραμονή εκεί είναι μετά το ETA. Για διώρυγα επίλεξε Port Said ↔ Suez ή Cristóbal ↔ Balboa ως ξεχωριστό σκέλος. Οι προεπιλεγμένες ώρες διέλευσης αλλάζουν παρακάτω.</p>
+        <p class="hint">Πρόσθεσε ένα σκέλος για κάθε τμήμα του πλόου. Στο τέλος κάθε σκέλους μπορείς να ορίσεις χειροκίνητα τοπική ημερομηνία και ώρα άφιξης και αναχώρησης, ζώνη ώρας και ταχύτητα σκέλους. Η αναχώρηση από τον τελικό προορισμό εμφανίζεται στο πλάνο και η παραμονή εκεί είναι μετά το ETA. Για διώρυγα επίλεξε Port Said ↔ Suez ή Cristóbal ↔ Balboa ως ξεχωριστό σκέλος. Οι προεπιλεγμένες ώρες διέλευσης αλλάζουν παρακάτω.</p>
         <div id="legsList" data-testid="list-legs"></div>
         <div style="margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap">
           <button class="btn small" id="addLeg" data-testid="button-add-leg">+ Προσθήκη σκέλους</button>
@@ -138,6 +138,24 @@
           <div class="result-box"><div class="r-label">Άφιξη (UTC)</div><div class="r-value" style="font-size:var(--text-sm)" id="resArrUtc">—</div></div>
         </div>
       </div>
+
+      <details class="card" id="linkedVoyage">
+        <summary><strong>Πλήρες ταξίδι · Φόρτωση → Laden → Εκφόρτωση → Ballast</strong></summary>
+        <p class="hint">Χρησιμοποίησε τα παραπάνω σκέλη για τον Laden πλου και τα πλάνα φόρτωσης και εκφόρτωσης από το Cargo Transfer. Η επιστροφή ξεκινά από το λιμάνι εκφόρτωσης με αντίστροφη διαδρομή και δικές της ρυθμίσεις.</p>
+        <div class="grid-form">
+          <label class="field">Πλάνα Cargo Transfer<select data-linked="method"><option value="guided">Καθοδηγούμενο ramp</option><option value="staged">Χειροκίνητα στάδια</option></select></label>
+          <label class="field">Ταχύτητα επιστροφής Ballast (kn)<input data-linked="speed" type="number" min="0.01" step="any" placeholder="Ταχύτητα υπηρεσίας"></label>
+          <label class="field">Μείωση LNG από το τέλος φόρτωσης μέχρι την αναχώρηση Laden (m³)<input data-linked="loaded" type="number" min="0" step="any" placeholder="0"></label>
+          <label class="field">Μείωση LNG μετά την άφιξη και πριν από την έναρξη εκφόρτωσης (m³)<input data-linked="before" type="number" min="0" step="any" placeholder="0"></label>
+          <label class="field">Μείωση LNG κατά την εκφόρτωση και μέχρι την αναχώρηση Ballast (m³)<input data-linked="after" type="number" min="0" step="any" placeholder="0"></label>
+          <label class="field">LSHFO από την άφιξη έως την αναχώρηση στο λιμάνι εκφόρτωσης (t)<input data-linked="portFo" type="number" min="0" step="any" placeholder="0"></label>
+          <label class="field">MDO από την άφιξη έως την αναχώρηση στο λιμάνι εκφόρτωσης (t)<input data-linked="portMdo" type="number" min="0" step="any" placeholder="0"></label>
+        </div>
+        <p class="hint">Για διαφορετική διαδρομή επιστροφής μπορείς να αλλάξεις τα ενδιάμεσα waypoints και τα μίλια. Τα πεδία ώρας επιστροφής είναι σε UTC. Η αναχώρηση Ballast παίρνει την ώρα αναχώρησης του τελικού σημείου Laden, ή το τέλος εκφόρτωσης αν την αφήσεις κενή. Τα αρχικά m³ ανά tank στο πλάνο εκφόρτωσης ορίζουν τις αναλογίες κατανομής του συνολικού ROB άφιξης.</p>
+        <div id="returnRoute"></div>
+        <div class="alert" id="linkedStatus" role="status" hidden></div>
+        <div class="table-wrap"><table class="data-table" id="linkedTimeline"></table></div>
+      </details>
 
     </section>
 
@@ -658,11 +676,12 @@
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/ports.js"></script>
-  <script src="js/app.js?v=10"></script>
+  <script src="js/app.js?v=11"></script>
   <script src="js/operations.js"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
   <script src="js/transfer.js"></script>
   <script src="js/ramp.js"></script>
+  <script src="js/linked.js"></script>
 </body>
 </html>
