@@ -563,9 +563,13 @@
               <label class="field">Notices πριν την πρώτη μείωση (min)<input data-form="notices" placeholder="60,30,10"></label>
               <label class="field">Drain γραμμών (m³)<input type="number" min="0" step="any" data-form="drain"></label>
               <label class="field">Διάρκεια drain (min)<input type="number" min="0" step="any" data-form="drainMinutes"></label>
-              <label class="field" id="formDrainTank">Tank υποδοχής drain<input data-form="drainTank" placeholder="T4"></label>
+              <label class="field" id="formDrainTank">Tank υποδοχής drain<select data-form="drainTank"></select></label>
             </div>
-            <label class="field" id="formShorePumps">Shore pump ID, νέα συνολική παροχή, hold min<textarea data-form="shorePumps" rows="3" placeholder="SP1,9000,5&#10;SP2,6000,5"></textarea>Το τελικό stop γίνεται μετά το τελευταίο hold.</label>
+            <div id="formShorePumps">
+              <p class="hint">Επίλεξε αντλία και βάλε τη νέα συνολική παροχή και τα λεπτά διατήρησης.</p>
+              <div id="shorePumpRows"></div>
+              <button class="btn small" type="button" data-picker-action="shore-add">+ Αντλία στεριάς</button>
+            </div>
           </section>
           <section id="formUnloading" hidden>
             <p class="hint">Table A χρησιμοποιεί ίσες παροχές. Table B χρησιμοποιεί τη σειρά και τις παροχές που δίνεις. Το bulk του Table B κατανέμεται ώστε τα tanks να φτάσουν μαζί στα ROB έναρξης ramp-down, χωρίς να ξεπεραστεί η παροχή των αντλιών κάθε tank.</p>
@@ -582,8 +586,16 @@
               <label class="field">Αριθμός αντλιών<input type="number" min="1" max="64" data-form="count"></label>
               <label class="field">Συνολική παροχή (m³/h)<input type="number" min="1" step="any" data-form="totalRate"></label>
             </div>
-            <label class="field" id="formTankData">Tank ID, αρχικό ROB m³, heel m³<textarea data-form="tankData" rows="4" placeholder="T1,24900,200&#10;T2,47000,200"></textarea></label>
-            <label class="field" id="formPumpData">Pump ID, Tank ID, παροχή m³/h · με τη σειρά stop<textarea data-form="pumpData" rows="5" placeholder="P1,T2,1714&#10;P2,T3,1700"></textarea></label>
+            <div id="formTankData"></div>
+            <div id="formPumpData">
+              <div id="shipPumpChecks"></div>
+              <div class="grid-form">
+                <label class="field">Κοινή παροχή ανά αντλία (m³/h)<input id="commonPumpRate" type="number" min="1" step="any"></label>
+                <button class="btn small" type="button" data-picker-action="apply-rate">Εφαρμογή στις επιλεγμένες</button>
+              </div>
+              <h4>Σειρά διακοπής αντλιών</h4>
+              <div id="shipPumpRows"></div>
+            </div>
           </section>
           <p id="formStatus" role="status"></p>
           <div class="table-wrap"><table class="data-table" id="formRows"></table></div>
@@ -725,9 +737,9 @@
   <script src="js/operations.js?v=13"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
-  <script src="js/transfer.js?v=12"></script>
+  <script src="js/transfer.js?v=14"></script>
   <script src="js/ramp.js"></script>
-  <script src="js/ramp-forms.js"></script>
+  <script src="js/ramp-forms.js?v=14"></script>
   <script src="js/linked.js?v=12"></script>
 </body>
 </html>
