@@ -221,7 +221,7 @@ function legScheduleText(leg) {
 }
 
 /* ---------- Κεντρικός υπολογισμός ---------- */
-function compute() {
+function compute(departureOverride) {
   // Ανά σκέλος: λιμένες, απόσταση, διώρυγα (αν υπάρχει)
   const legs = S.legs.map((leg) => {
     const from = PORTS[leg.fromIdx] || PORTS[0];
@@ -241,7 +241,7 @@ function compute() {
   const from = legs[0]?.from || PORTS[0];
   const to = legs.at(-1)?.to || PORTS[1];
   const gc = legs.reduce((sum, l) => sum + (l.src === "gc" ? l.dist / S.routingFactor : l.dist), 0);
-  const depEpoch = localToEpoch(S.depDate, S.depTime, S.depTz);
+  const depEpoch = departureOverride ?? localToEpoch(S.depDate, S.depTime, S.depTz);
   const arrEpoch = localToEpoch(S.arrDate, S.arrTime, S.arrTz);
   const scheduleErrors = planLegs(legs, depEpoch, S.speedMode === "eta" ? arrEpoch : NaN);
   const total = (select) => legs.reduce((sum, l, i) => sum + select(l, i), 0);
@@ -764,6 +764,7 @@ function syncInputs() {
 
 /* ---------- Σκέλη πλόου (UI) ---------- */
 function renderLegs() {
+  if (typeof syncLinkedVoyage === "function") syncLinkedVoyage();
   const box = $("legsList");
   box.innerHTML = S.legs
     .map((leg, i) => {
@@ -803,17 +804,17 @@ function renderLegs() {
           <span class="leg-dist" id="legDist${i}">—</span>
         </div>
         <button class="btn small danger leg-del" data-del-leg="${i}" aria-label="Διαγραφή σκέλους ${i + 1}">✕</button>
-        <details class="leg-timing" ${leg.stopArrival || leg.stopDeparture || leg.transitOverride || leg.speedOverride ? "open" : ""}>
-          <summary>Χρονοδιάγραμμα σκέλους ${i + 1} (προαιρετικό)</summary>
+        <div class="leg-timing">
+          <strong>${last ? "Τελικό σημείο" : "Waypoint " + (i + 1)} · ${opsEscape(PORTS[leg.toIdx]?.name || "")}</strong>
           <div class="grid-form">
           ${!canal ? `<label class="field">Επιθυμητή ταχύτητα σκέλους (kn)
             <input type="number" min="0.01" step="any" data-legi="${i}" data-f="speedOverride"
               value="${Number.isFinite(leg.speedOverride) ? leg.speedOverride : ""}" placeholder="Αυτόματα">
           </label>` : ""}
-            <label class="field">Άφιξη ${canal ? "στην έξοδο της διώρυγας" : "στο τέλος του σκέλους"}
+            <label class="field">Ημερομηνία και ώρα άφιξης ${canal ? "στην έξοδο της διώρυγας" : "στο τέλος του σκέλους"}
               <input type="datetime-local" data-legi="${i}" data-f="stopArrival" value="${dateValue(leg.stopArrival)}">
             </label>
-            <label class="field">${last ? "Αναχώρηση από τελικό σημείο" : nextCanal ? "Έναρξη διέλευσης" : "Αναχώρηση για το επόμενο σκέλος"}
+            <label class="field">Ημερομηνία και ώρα ${last ? "αναχώρησης από τελικό σημείο" : nextCanal ? "έναρξης διέλευσης" : "αναχώρησης για το επόμενο σκέλος"}
               <input type="datetime-local" data-legi="${i}" data-f="stopDeparture" value="${dateValue(leg.stopDeparture)}">
             </label>
             <label class="field">Ζώνη ώρας σημείου
@@ -824,7 +825,7 @@ function renderLegs() {
               value="${Number.isFinite(leg.transitOverride) ? leg.transitOverride : ""}">
           </label>` : ""}
           </div>
-        </details>
+        </div>
 
       </div>`;
     })
@@ -1043,6 +1044,7 @@ function render() {
       ? '<div class="alert ok">Όλες οι ποσότητες επαρκείς για τον πλόο με βάση τα τρέχοντα δεδομένα.</div>'
       : "";
   }
+  if (typeof renderLinkedVoyage === "function") renderLinkedVoyage(r);
   renderPhaseForecast(r);
   if (typeof renderCharterParty === "function") renderCharterParty(r);
   if (typeof renderCargoCalibration === "function") renderCargoCalibration();
