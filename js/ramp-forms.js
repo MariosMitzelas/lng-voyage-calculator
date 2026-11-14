@@ -163,10 +163,11 @@ function renderRampForms(sync = false) {
   const plan = transferPlan();
   const loading = S.transfer.mode !== "unloading";
   const config = { ...rampFormDefaults, ...plan.form };
-  if (sync) renderRampPickers(plan);
+  if (sync) renderRampPickers(plan, config);
   if (sync) for (const input of panel.querySelectorAll("[data-form]")) {
     input.value = config[input.dataset.form] ?? "";
   }
+  $("formPlanTanks").hidden = config.linked !== "plan";
   $("formLoading").hidden = !loading;
   $("formUnloading").hidden = loading;
   $("formShorePumps").hidden = config.style !== "pumps";
@@ -230,8 +231,28 @@ document.addEventListener("DOMContentLoaded", () => {
     (transferPlan().form ??= {})[key] = event.target.value;
     renderRampForms(event.target.tagName === "SELECT");
     if (typeof renderLinkedVoyage === "function") renderLinkedVoyage();
+    if (key === "bulk" || key === "totalRate") renderTankStep(true);
   });
-  panel.addEventListener("change", editRampPicker);
+  panel.addEventListener("change", event => {
+    editRampPicker(event);
+    const input = event.target;
+    const id = input.dataset.planTank;
+    if (!id) return;
+    const plan = transferPlan();
+    const index = plan.tanks.findIndex(row => row.id === id);
+    if (input.type === "checkbox") {
+      if (input.checked && index < 0) plan.tanks.push({ id });
+      if (!input.checked && index >= 0) {
+        plan.tanks.splice(index, 1);
+        if (plan.form?.pumpData) plan.form.pumpData = parseFormRows(plan.form.pumpData)
+          .filter(row => row[1] !== id).map(row => row.join(",")).join("\n");
+      }
+    } else if (index >= 0) {
+      plan.tanks[index][input.dataset.planValue] = input.value;
+    }
+    renderRampForms(input.type === "checkbox");
+    renderTankStep(true);
+  });
   panel.addEventListener("click", editRampPicker);
   $("transferPlanner").addEventListener("change", event => {
     if (!event.target.closest("#rampForms")) renderRampForms(true);
@@ -243,14 +264,23 @@ const standardShoreIds = Array.from({ length: 16 }, (_, i) => "SP" + (i + 1));
 const pickerGroups = { tank: "tankData", ship: "pumpData", shore: "shorePumps" };
 const pickerTankLabel = id => cargoTankLabel(id) === id && /^T[1-4]$/.test(id) ? "Cargo Tank " + id.slice(1) : cargoTankLabel(id);
 
-function renderRampPickers(plan) {
-  const config = plan.form ?? {};
+function renderRampPickers(plan, config) {
   const linked = config.linked === "plan";
   const tanks = parseFormRows(config.tankData);
   const ship = parseFormRows(config.pumpData);
   const shore = parseFormRows(config.shorePumps);
   const tankIds = [...new Set(linked ? plan.tanks.map(tank => tank.id).filter(Boolean) : [...standardTankIds, ...tanks.map(([id]) => id)])];
   const active = new Set(linked ? tankIds : tanks.map(([id]) => id));
+  $("formPlanTankRows").innerHTML = linked ? [...new Set([...standardTankIds, ...tankIds])].map(id => {
+    const row = plan.tanks.find(tank => tank.id === id);
+    const tankId = opsEscape(id);
+    const field = (key, label) => `<label class="field">${label}<input type="number" inputmode="decimal" min="0" step="any"
+      data-plan-tank="${tankId}" data-plan-value="${key}" value="${opsEscape(row[key])}"></label>`;
+    const target = S.transfer.mode === "unloading" ? "Heel (m³)" : "Τελικό ROB (m³)";
+    return `<fieldset><legend>${opsEscape(pickerTankLabel(id))}</legend>
+      <label><input type="checkbox" data-plan-tank="${tankId}" ${row ? "checked" : ""}> Συμμετέχει</label>
+      ${row ? `<div class="grid-form">${field("start", "Αρχικό ROB (m³)")}${field("target", target)}</div>` : ""}</fieldset>`;
+  }).join("") : "";
   const options = (ids, selected, label) => ids.map(id =>
     `<option value="${opsEscape(id)}"${selected === id ? " selected" : ""}>${opsEscape(label(id))}</option>`).join("");
   const number = (group, index, column, label, value, minimum = 0) =>
@@ -327,4 +357,5 @@ function editRampPicker(event) {
   save(key, rows);
   renderRampForms(!picker || input.tagName === "SELECT");
   if (typeof renderLinkedVoyage === "function") renderLinkedVoyage();
+  if (group !== "shore") renderTankStep(true);
 }

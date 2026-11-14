@@ -15,8 +15,6 @@ const phaseFields = {
   lng: "LNG m³/d", fo: "LSHFO t/d", mdo: "LSMGO t/d", bor: "BOR %/d", frs: "FRS m³/d", forced: "Όριο forcing m³/d",
 };
 const scenarioIds = ["opsDelayA", "opsDelayB", "opsDelayC", "opsMax", "opsOpen", "opsClose", "opsHeel"];
-const dischargeIds = ["discStart", "discLoaded", "discVolume", "discHeel", "discRate", "discUp", "discDown",
-  "discStripVolume", "discStripTime", "discLoss"];
 const profileKeys = ["density", "capacity", "fillPct", "coolTanks", "coolLine", "cvLNG", "cvFOE",
   "consTable", "charterParty", "cargoCalibration", "borOverrides", "serviceSpeed", "marginMode", "marginPct", "marginAmount", "idleLng", "idleFo", "idleMdo"];
 
@@ -574,87 +572,6 @@ function importProfile(file, { activateCharter = false } = {}) {
   });
 }
 
-function dischargeState() {
-  if (!S.discharge || typeof S.discharge !== "object") S.discharge = {};
-  return S.discharge;
-}
-
-function calculateDischarge(values, tanks) {
-  const get = (key) => opsNumber(values[key]);
-  const optional = (key) => get(key) || 0;
-  const tankRows = tanks.map((tank, i) => {
-    const start = opsNumber(tank.start);
-    const heel = opsNumber(tank.heel);
-    const min = opsNumber(tank.min);
-    const max = opsNumber(tank.max);
-    const warnings = [];
-    if (heel > start) warnings.push("Heel πάνω από τον αρχικό όγκο");
-    if (heel < min || heel > max || min > max) warnings.push("Εκτός ορίου heel");
-    return { i, start, heel, warnings };
-  });
-  const haveTanks = tankRows.length > 0 && tankRows.every((tank) => Number.isFinite(tank.start) && Number.isFinite(tank.heel));
-  const tankStart = haveTanks ? tankRows.reduce((sum, tank) => sum + tank.start, 0) : NaN;
-  const tankHeel = haveTanks ? tankRows.reduce((sum, tank) => sum + tank.heel, 0) : NaN;
-  const loaded = Number.isFinite(get("discLoaded")) ? get("discLoaded") : tankStart;
-  const loss = optional("discLoss");
-  const target = Number.isFinite(get("discHeel")) ? get("discHeel") : tankHeel;
-  const volume = Number.isFinite(get("discVolume")) ? get("discVolume") : loaded - target - loss;
-  const heel = loaded - volume - loss;
-  const rate = get("discRate");
-  const rampUp = optional("discUp");
-  const rampDown = optional("discDown");
-  const stripVolume = optional("discStripVolume");
-  const stripTime = optional("discStripTime");
-  const bulk = volume - stripVolume;
-  const rampHours = rampUp + rampDown;
-  const rampVolume = rate * rampHours / 2;
-  const errors = [];
-  if (!(rate > 0) || ![loaded, volume].every(Number.isFinite)) {
-    errors.push("Χρειάζονται αρχικός όγκος, ποσότητα ή heel και θετική παροχή τερματικού.");
-  } else {
-    if (volume < 0 || heel < -1e-7) errors.push("Ο όγκος εκφόρτωσης, το heel και οι απώλειες πρέπει να συμφωνούν.");
-    if (bulk < 0 || (stripVolume > 0 && (!(stripTime > 0) || stripVolume / stripTime > rate))) {
-      errors.push("Η ποσότητα ή η παροχή του stripping ξεπερνά τα διαθέσιμα όρια.");
-    }
-    if (bulk < rampVolume - 1e-7) errors.push("Οι δηλωμένες ράμπες στη μέγιστη παροχή ξεπερνούν την ποσότητα κύριας εκφόρτωσης.");
-  }
-  const warnings = [];
-  if (Number.isFinite(get("discVolume")) && Number.isFinite(target) && Math.abs(heel - target) > 0.1) {
-    warnings.push("Το προβλεπόμενο heel διαφέρει από τον στόχο.");
-  }
-  if (haveTanks && (Math.abs(tankStart - loaded) > 0.1 || Math.abs(tankHeel - heel) > 0.1)) {
-    warnings.push("Τα σύνολα των δεξαμενών διαφέρουν από το συνολικό πλάνο.");
-  }
-  for (const tank of tankRows) warnings.push(...tank.warnings.map((warning) => `Δεξαμενή ${tank.i + 1}: ${warning}.`));
-  const fullRateHours = (bulk - rampVolume) / rate;
-  const hours = errors.length ? NaN : rampHours + Math.max(0, fullRateHours) + stripTime;
-  const finish = opsDate(values.discStart) + hours * HOUR;
-  return { volume, heel, hours, finish, fullRateHours, tankStart, tankHeel, errors, warnings };
-}
-
-function runDischarge() {
-  const discharge = dischargeState();
-  discharge.values = Object.fromEntries(dischargeIds.map((id) => [id, $(id).value]));
-  if (!Object.values(discharge.values).some(Boolean) && !(discharge.tanks || []).length) {
-    $("discStatus").textContent = "";
-    $("discResult").innerHTML = "";
-    return;
-  }
-  const invalidInput = dischargeIds.some((id) => !$(id).checkValidity());
-  if (invalidInput) {
-    $("discStatus").textContent = "Έλεγξε τις καταχωρίσεις. Οι ποσότητες και οι ώρες πρέπει να είναι μη αρνητικές.";
-    $("discResult").innerHTML = "";
-    return;
-  }
-  const r = calculateDischarge(discharge.values, discharge.tanks || []);
-  $("discStatus").textContent = [...r.errors, ...r.warnings].join(" ");
-  $("discResult").innerHTML = r.errors.length ? "" : tableHtml(["Υπολογισμός", "Αποτέλεσμα"], [
-    ["Ποσότητα εκφόρτωσης", `${fmt(r.volume, 1)} m³`], ["Προβλεπόμενο heel", `${fmt(r.heel, 1)} m³`],
-    ["Ώρες στη μέγιστη παροχή", fmt(r.fullRateHours, 2)], ["Συνολική διάρκεια (h)", fmt(r.hours, 2)],
-    ["Εκτιμώμενη ολοκλήρωση", utcText(r.finish)], ["Heel από ισοζύγιο δεξαμενών", `${fmt(r.tankHeel, 1)} m³`],
-  ]);
-}
-
 function syncOperations() {
   const ops = opsState();
   for (const id of scenarioIds) $(id).value = ops.settings?.[id] ?? "";
@@ -665,13 +582,11 @@ function syncOperations() {
   }
   $("opsStamp").value = "";
   for (const id of ["opsNm", "opsCanal", "opsLng", "opsFo", "opsMdo"]) $(id).value = "";
-  for (const id of dischargeIds) $(id).value = S.discharge?.values?.[id] ?? "";
   const active = (ops.reports || []).find((report) => report.id === ops.activeReport);
   renderOperationsControls();
   $("opsLeg").value = String(active?.leg ?? 0);
   updateNoonFields();
   renderPhaseInputs();
-  runDischarge();
   renderProfiles();
   syncTransferPlanner();
 }
@@ -730,18 +645,6 @@ function initOperations() {
     importProfile(event.target.files[0]);
     event.target.value = "";
   });
-  $("discCompute").addEventListener("click", runDischarge);
-  $("discUseForecast").addEventListener("click", () => {
-    const scenario = operationsScenarios.find((item) => item.name === $("opsPick").value);
-    const rob = scenario?.result?.arrRobM3 ?? compute().arrRobM3;
-    if (!(rob >= 0)) {
-      $("discStatus").textContent = "Χρειάζεται έγκυρο LNG ROB άφιξης.";
-      return;
-    }
-    $("discLoaded").value = rob.toFixed(2);
-    runDischarge();
-  });
-  for (const id of dischargeIds) $(id).addEventListener("change", runDischarge);
   if (location.protocol !== "file:" && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
