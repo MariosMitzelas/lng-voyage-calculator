@@ -275,7 +275,7 @@ function calculateTransfer(plan, mode) {
 function syncTransferPlanner() {
   const plan = transferPlan();
   $("transferMode").value = S.transfer.mode ?? "loading";
-  $("transferStart").value = plan.start ?? "";
+  $("transferStart").value = plan.form?.reference || plan.start || "";
   renderRampForms(true);
   renderTankStep(true);
 }
@@ -286,8 +286,10 @@ document.addEventListener("DOMContentLoaded", () => {
     syncTransferPlanner();
   });
   $("transferStart").addEventListener("input", event => {
-    transferPlan().start = event.target.value;
+    const plan = transferPlan();
+    plan.start = event.target.value;
+    if (plan.form) delete plan.form.reference;
     renderRampForms();
-    renderLinkedVoyage();
+    render();
   });
 });

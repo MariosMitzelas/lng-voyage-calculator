@@ -354,16 +354,18 @@ function cargoVolumeText(volume, withMass = true) {
 
 function voyagePresentation() {
   const standalone = compute();
-  const linked = standalone.cargoMode === "laden" && (S.linkedVoyage?.method || S.transfer?.loading?.tanks?.length)
-    ? computeLinkedVoyage() : null;
-  return { voyage: linked?.ladenBalance ? linked.outbound : standalone, linked };
+  const linked = standalone.cargoMode === "laden" ? computeLinkedVoyage(standalone) : null;
+  return { voyage: linked?.outbound ?? standalone, linked };
 }
 
 function cargoArrivalRows(r, linked) {
   if (linked) {
-    const rows = linked.ladenBalance ? ladenBalanceRows(linked.ladenBalance) : [];
+    const rows = linked.ladenBalance ? ladenBalanceRows(linked.ladenBalance) : [
+      ["Μείωση LNG στον πλου Laden", cargoVolumeText(r.cargoUsed)],
+      ["QOB άφιξης", cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN)],
+    ];
     if (linked.heelBalance) {
-      rows.push(["EDQ · πλάνο Cargo Transfer", cargoVolumeText(linked.heelBalance.edq)]);
+      rows.push(["EDQ", cargoVolumeText(linked.heelBalance.edq)]);
       rows.push(...heelBalanceRows(linked.heelBalance));
     }
     if (linked.inbound) rows.push(["Max Intake επόμενης φόρτωσης", cargoVolumeText(linked.inbound.maxIntakeM3)]);
@@ -397,7 +399,7 @@ function analysisRows(r, linked) {
   const add = (label, value, unit, precision = 2) => {
     if (Number.isFinite(value)) rows.push([label, `${fmt(value, precision)} ${unit}`]);
   };
-  const loaded = linked ? linked.ladenBalance?.loadedQuantity : get("loaded");
+  const loaded = linked?.ladenBalance?.loadedQuantity ?? get("loaded");
   const heel = get("heel");
   const days = r.days + (get("unloadDays") || 0);
   const bogRate = get("bor") / 100;
@@ -786,6 +788,8 @@ function syncInputs() {
 /* ---------- Σκέλη πλόου (UI) ---------- */
 function renderLegs() {
   if (typeof syncLinkedVoyage === "function") syncLinkedVoyage();
+  $("voyageFrom").innerHTML = portOptions(S.legs[0]?.fromIdx);
+  $("voyageTo").innerHTML = portOptions(S.legs.at(-1)?.toIdx);
   const box = $("legsList");
   box.innerHTML = S.legs
     .map((leg, i) => {
@@ -953,25 +957,31 @@ function render() {
   });
 
   // Ταξίδι — σύνολα
-  $("resRouteDist").textContent = fmt(r.distance, 0) + " nm";
-  $("resDepUtc").textContent = Number.isFinite(r.depEpoch)
-    ? new Date(r.depEpoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
   $("resArrUtc").textContent = Number.isFinite(r.etaArrEpoch)
     ? new Date(r.etaArrEpoch).toLocaleString("el-GR", { timeZone: "UTC", dateStyle: "medium", timeStyle: "short" }) + " UTC" : "—";
-  $("resDuration").textContent = bad(r.hours) ? "—" : `${fmt(r.days, 2)} ημέρες (${fmt(r.hours, 1)} ώρες)`;
-  $("resSpeed").textContent = bad(r.speed) ? "—" : fmt(r.speed, 2) + " knots";
   const transitNote = r.transitHours > 0 || r.waitHours > 0
     ? `Περιλαμβάνονται ${fmt(r.transitHours, 0)} h διέλευσης και ${fmt(r.waitHours, 1)} h αναμονής · πλεύσιμος χρόνος ${fmt(r.seaHours, 1)} h (${fmt(r.seaDays, 2)} ημ)` : "";
   $("resTransit").textContent = transitNote;
-  $("resTransit").style.display = transitNote ? "block" : "none";
-  $("resSpeedNote").textContent = r.scheduleErrors.join(" ") || "Μέση ταχύτητα στη θάλασσα. Η ταχύτητα ανά σκέλος εμφανίζεται στη διαδρομή.";
+  $("resTransit").hidden = !transitNote;
+  const isBallast = r.cargoMode === "ballast";
+  $("outboundHeading").textContent = "1. Αναχώρηση · " + r.from.name;
+  $("loadRampAction").hidden = isBallast;
+  $("outboundArrivalHeading").textContent = "2. Άφιξη · " + r.to.name;
+  $("outboundEtaFields").hidden = S.speedMode !== "eta";
+  $("outboundSpeedFields").hidden = S.speedMode !== "speed";
+  $("outboundPassage").textContent = passageReadout(r, S.speedMode === "eta");
+  $("outboundRobLabel").textContent = isBallast ? "ROB άφιξης" : "QOB άφιξης";
+  $("outboundRob").textContent = cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN, false);
+  $("outboundCargoLabel").textContent = isBallast ? "Max Intake" : "EDQ";
+  $("outboundCargo").textContent = cargoVolumeText(isBallast ? r.maxIntakeM3 : edq, false);
+  $("outboundCargo").closest(".result-box").hidden = r.cargoMode !== "laden" && !isBallast;
+  $("resSpeedNote").textContent = r.scheduleErrors.join(" ") || (linked ? "" : r.cargoNote);
   $("marginPct").closest(".field").hidden = S.marginMode !== "pct";
   $("marginAmount").closest(".field").hidden = !["lng", "fo", "mdo"].includes(S.marginMode);
   $("marginAmountLabel").textContent = {lng: "Ποσότητα LNG (m³)", fo: "Ποσότητα LSHFO (t)", mdo: "Ποσότητα LSMGO (t)"}[S.marginMode] || "Ποσότητα";
 
   // ROB & Απαιτήσεις
   $("depLngOut").textContent = cargoVolumeText(r.departureLng);
-  $("linkedDepartureNote").hidden = !linked;
   $("arrLngOut").textContent = bad(r.arrRobM3) ? "—" : `${fmt(r.arrRobM3, 0)} m³ = ${fmt(r.arrRobM3 * S.density, 1)} t`;
   for (const id of ["arrLngMarginOut", "coolOut", "marginOut", "reqOut"]) {
     $(id).closest(".result-box").hidden = r.cargoMode !== "ballast";
@@ -991,14 +1001,12 @@ function render() {
   if ($("cargoArrivalTitle")) {
     $("cargoArrivalTitle").textContent = r.cargoMode === "laden" ? "Laden · EDQ στο " + r.to.name
       : r.cargoMode === "ballast" ? "Ballast · Max Intake στο " + r.to.name : "Εκτίμηση φορτίου στην άφιξη";
-    $("departureLngLabel").textContent = r.cargoMode === "laden" ? "Συνολικό LNG στο πλοίο μετά τη φόρτωση (m³)"
+    $("departureLngLabel").textContent = r.cargoMode === "laden" ? "LNG ROB αναχώρησης (m³)"
       : r.cargoMode === "ballast" ? "LNG heel αναχώρησης μετά την εκφόρτωση (m³)" : "LNG ROB αναχώρησης (m³)";
     $("cargoArrivalNote").textContent = linked
-      ? (linked.message || "Το EDQ και το heel υπολογίζονται από το πλάνο Cargo Transfer.")
+      ? linked.message
       : r.cargoNote;
     $("cargoArrivalNote").hidden = !$("cargoArrivalNote").textContent;
-    $("manualArrivalHeel").hidden = Boolean(linked);
-    $("manualEdqHint").hidden = Boolean(linked);
     $("ladenArrival").hidden = r.cargoMode !== "laden";
     $("ballastArrival").hidden = r.cargoMode !== "ballast";
     $("cargoArrivalBalances").hidden = $("ladenArrival").hidden && $("ballastArrival").hidden;
@@ -1011,6 +1019,7 @@ function render() {
   }
 
   $("summaryVoyageSequence").hidden = !linked;
+  if (!linked) $("summaryDetails").open = true;
   $("summaryVoyageSequenceTable").innerHTML = linked ? voyageSequence(linked) : "";
   $("summaryVoyageSequenceStatus").textContent = linked?.message ?? "";
   $("summaryVoyageSequenceStatus").hidden = !linked?.message;
@@ -1047,10 +1056,9 @@ function render() {
     ${cargoArrivalRows(r, linked).map(([label, value]) => `<tr><td>${opsEscape(label)}</td><td class="num">${opsEscape(value)}</td></tr>`).join("")}
     </tbody>`;
 
-  for (const key of ["loaded", "heel", "returnLng"]) {
-    for (const field of document.querySelectorAll(`[data-analysis="${key}"]`)) {
-      field.closest(".field").hidden = Boolean(linked);
-    }
+  for (const key of ["loaded", "returnLng"]) {
+    const field = document.querySelector(`[data-analysis="${key}"]`);
+    field.closest(".field").hidden = key === "loaded" ? Boolean(linked?.ladenBalance) : Boolean(linked?.inbound);
   }
   const optionalRows = analysisRows(r, linked);
   $("analysisResults").hidden = optionalRows.length === 0;
@@ -1081,7 +1089,7 @@ function render() {
     ? warns.map((w) => `<div class="alert error">${w}</div>`).join("")
     : "";
   if (!warns.length) {
-    $("warnings").innerHTML = Number.isFinite(r.speed)
+    $("warnings").innerHTML = !linked && Number.isFinite(r.speed)
       ? '<div class="alert ok">Όλες οι ποσότητες επαρκείς για τον πλόο με βάση τα τρέχοντα δεδομένα.</div>'
       : "";
   }
@@ -1123,6 +1131,21 @@ function init() {
   syncInputs();
   setupTabs();
   render();
+
+  $("voyageFrom").addEventListener("change", ({ target }) => {
+    const port = $("legsList").querySelector('[data-legi="0"][data-f="fromIdx"]');
+    if (port) {
+      port.value = target.value;
+      port.dispatchEvent(new Event("change"));
+    }
+  });
+  $("voyageTo").addEventListener("change", ({ target }) => {
+    const port = $("legsList").querySelector(`[data-legi="${S.legs.length - 1}"][data-f="toIdx"]`);
+    if (port) {
+      port.value = target.value;
+      port.dispatchEvent(new Event("change"));
+    }
+  });
 
   // — Ταξίδι: σκέλη —
   $("addLeg").addEventListener("click", () => {
@@ -1201,9 +1224,6 @@ function init() {
   document.querySelectorAll("[data-analysis]").forEach((input) =>
     input.addEventListener("change", () => {
       S.analysis[input.dataset.analysis] = input.value;
-      if (input.dataset.analysis === "heel") {
-        for (const field of document.querySelectorAll('[data-analysis="heel"]')) field.value = input.value;
-      }
       render();
     })
   );
@@ -1219,8 +1239,6 @@ function init() {
   $("btnSave").addEventListener("click", saveVoyage);
   $("btnLoad").addEventListener("click", openLoadModal);
   $("btnExport").addEventListener("click", exportJson);
-  $("btnReport").addEventListener("click", exportReport);
-  $("btnPrint").addEventListener("click", () => window.print());
   $("btnReport2").addEventListener("click", exportReport);
   $("btnPrint2").addEventListener("click", () => window.print());
   $("btnImport").addEventListener("change", (e) => {
