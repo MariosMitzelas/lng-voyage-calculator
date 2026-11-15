@@ -184,6 +184,11 @@ function voyageSequence(linked) {
   const dischargePort = laden?.to.name ?? PORTS[last?.toIdx]?.name ?? "Λιμάνι εκφόρτωσης";
   const quantity = (label, value) => label + " " + cargoVolumeText(value, false);
   const speed = voyage => Number.isFinite(voyage?.speed) ? fmt(voyage.speed, 2) + " kn" : "—";
+  const passage = (voyage, byArrival) => [
+    "Απόσταση " + (Number.isFinite(voyage?.distance) ? fmt(voyage.distance, 0) + " nm" : "—")
+      + " · Διάρκεια " + (Number.isFinite(voyage?.days) ? fmt(voyage.days, 2) + " ημέρες" : "—"),
+    (byArrival ? "Απαιτούμενη μέση ταχύτητα " : "Μέση ταχύτητα ") + speed(voyage),
+  ];
   const consumptions = voyage => [
     quantity("LNG καύσιμο", voyage?.lngM3),
     quantity("Μείωση LNG ROB", voyage?.cargoUsed),
@@ -191,15 +196,27 @@ function voyageSequence(linked) {
   ];
   const rows = [
     ["1. Αναχώρηση φόρτωσης · " + loadingPort, [utcText(laden?.depEpoch), quantity("ROB αναχώρησης", laden?.departureLng)]],
-    ["Πλους Laden", [(S.speedMode === "eta" ? "Απαιτούμενη μέση ταχύτητα " : "Μέση ταχύτητα ") + speed(laden), ...consumptions(laden)]],
+    ["Πλους Laden", [...passage(laden, S.speedMode === "eta"), ...consumptions(laden)]],
     ["2. Άφιξη εκφόρτωσης · " + dischargePort, [utcText(laden?.etaArrEpoch), quantity("QOB άφιξης", laden?.arrRobM3)]],
     ["3. Αναχώρηση εκφόρτωσης · " + dischargePort, [
-      utcText(heelBalance?.departure), quantity("Heel που κρατάς στο τέλος εκφόρτωσης", heelBalance?.planned),
+      utcText(heelBalance?.departure),
+      quantity("Required heel κατά την αναχώρηση", inbound?.requiredM3),
+      ...(inbound ? [
+        [
+          quantity("Μείωση LNG στον πλου", inbound.cargoUsed),
+          quantity("Safety margin LNG", inbound.marginM3),
+          quantity("Cool-down", inbound.coolTotal),
+        ].join(" + "),
+      ] : []),
       quantity("ROB αναχώρησης", heelBalance?.returnRob >= 0 ? heelBalance.returnRob : NaN),
+      quantity("Heel που κρατάς στο τέλος εκφόρτωσης", heelBalance?.planned),
+      ...(heelBalance?.postDischarge > 0 ? [
+        quantity("Μείωση LNG στο λιμάνι έως την αναχώρηση", heelBalance.postDischarge),
+        quantity("Required heel στο τέλος εκφόρτωσης", heelBalance.required),
+      ] : []),
     ]],
     ["Πλους Ballast", [
-      (S.linkedVoyage?.speedMode === "eta" ? "Απαιτούμενη μέση ταχύτητα " : "Μέση ταχύτητα ") + speed(inbound),
-      ...consumptions(inbound), quantity("Required heel στο τέλος εκφόρτωσης", heelBalance?.required),
+      ...passage(inbound, S.linkedVoyage?.speedMode === "eta"), ...consumptions(inbound),
     ]],
     ["4. Άφιξη επόμενης φόρτωσης · " + loadingPort, [
       utcText(inbound?.etaArrEpoch), quantity("ROB άφιξης", inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN),
