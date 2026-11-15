@@ -169,6 +169,10 @@ function renderRampForms(sync = false) {
   }
   $("formPlanTanks").hidden = config.linked !== "plan";
   $("formLoading").hidden = !loading;
+  $("formTarget").firstChild.textContent = loading ? "Τελικό φορτίο μετά το drain (m³)" : "Heel μετά την εκφόρτωση (m³)";
+  panel.querySelector('[data-form="step"]').closest(".field").hidden = config.style !== "thousands";
+  panel.querySelector('[data-form="hold"]').closest(".field").hidden = config.style !== "thousands";
+  panel.querySelector('[data-form="detail"]').closest(".field").hidden = config.linked === "plan";
   $("formUnloading").hidden = loading;
   $("formShorePumps").hidden = config.style !== "pumps";
   $("formAggregate").hidden = config.detail === "tanks" || config.linked === "plan";
