@@ -142,10 +142,8 @@
       <details class="card" id="linkedVoyage">
         <summary><strong>Πλήρες ταξίδι · Φόρτωση → Laden → Εκφόρτωση → Ballast</strong></summary>
         <p class="hint">Χρησιμοποίησε τα παραπάνω σκέλη για τον Laden πλου και τα πλάνα φόρτωσης και εκφόρτωσης από το Cargo Transfer. Η επιστροφή ξεκινά από το λιμάνι εκφόρτωσης με αντίστροφη διαδρομή και δικές της ρυθμίσεις.</p>
-        <div id="linkedLadenBalance" hidden>
-          <h3>Laden · Από το τέλος φόρτωσης έως την έναρξη εκφόρτωσης</h3>
-          <div class="table-wrap"><table class="data-table" id="linkedLadenTable"></table></div>
-        </div>
+        <div class="table-wrap"><table class="data-table" id="linkedVoyageSequence" aria-label="Σειρά πλήρους ταξιδιού"></table></div>
+        <div class="alert" id="linkedStatus" role="status" hidden></div>
         <h3>Επιστροφή Ballast</h3>
         <div class="grid-form">
           <label class="field">Αναχώρηση από το λιμάνι εκφόρτωσης (UTC)<input data-linked="departure" type="datetime-local"></label>
@@ -155,11 +153,6 @@
         </div>
         <p class="hint">Κενή αναχώρηση χρησιμοποιεί την ώρα αναχώρησης του τελικού σημείου Laden ή το τέλος εκφόρτωσης.</p>
         <div id="returnHeadline" class="hint" role="status"></div>
-        <div id="linkedHeelBalance" hidden>
-          <h4>Required heel και heel που θα κρατήσεις</h4>
-          <p class="hint">Το required heel καλύπτει τη δηλωμένη μείωση LNG στο λιμάνι, τη μείωση στον Ballast πλου, το τυχόν περιθώριο σε LNG και το cool-down. Το heel που θα κρατήσεις είναι το σύνολο των στόχων ανά δεξαμενή στο Cargo Transfer.</p>
-          <div class="table-wrap"><table class="data-table" id="linkedHeelTable"></table></div>
-        </div>
         <details>
           <summary>Διαδρομή επιστροφής και στοιχεία λιμένα</summary>
           <div id="returnRoute"></div>
@@ -173,8 +166,19 @@
           </div>
           <p class="hint">Τα αρχικά m³ ανά tank στην εκφόρτωση ορίζουν τις αναλογίες κατανομής του ROB άφιξης.</p>
         </details>
-        <div class="alert" id="linkedStatus" role="status" hidden></div>
-        <div class="table-wrap"><table class="data-table" id="linkedTimeline"></table></div>
+        <details>
+          <summary>Αναλυτικό ισοζύγιο και χρονολόγιο</summary>
+          <div id="linkedLadenBalance" hidden>
+            <h3>Laden · Από το τέλος φόρτωσης έως την έναρξη εκφόρτωσης</h3>
+            <div class="table-wrap"><table class="data-table" id="linkedLadenTable"></table></div>
+          </div>
+          <div id="linkedHeelBalance" hidden>
+            <h4>Required heel και heel που θα κρατήσεις</h4>
+            <p class="hint">Το required heel καλύπτει τη δηλωμένη μείωση LNG στο λιμάνι, τη μείωση στον Ballast πλου, το τυχόν περιθώριο σε LNG και το cool-down. Το heel που θα κρατήσεις είναι το σύνολο των στόχων ανά δεξαμενή στο Cargo Transfer.</p>
+            <div class="table-wrap"><table class="data-table" id="linkedHeelTable"></table></div>
+          </div>
+          <div class="table-wrap"><table class="data-table" id="linkedTimeline"></table></div>
+        </details>
       </details>
 
     </section>
@@ -398,6 +402,7 @@
           <div class="field">
             <label for="robLng" id="departureLngLabel">LNG ROB αναχώρησης (m³)</label>
             <input type="number" id="robLng" step="1" min="0" value="4000">
+            <span class="unit-hint" id="linkedDepartureNote" hidden>Το συνδεδεμένο ταξίδι χρησιμοποιεί το ROB του πλάνου Cargo Transfer.</span>
           </div>
           <div class="field">
             <label for="robFo">Fuel Oil ROB (t)</label>
@@ -432,9 +437,9 @@
           <div class="result-box"><div class="r-label">Εκτιμώμενο LNG ROB άφιξης</div><div class="r-value" id="cargoArrivalRob">—</div></div>
         </div>
         <div id="ladenArrival" hidden>
-          <p class="hint">EDQ = LNG ROB άφιξης μείον το heel που θα κρατήσεις. Με κενό heel, εμφανίζεται ολόκληρη η ποσότητα άφιξης.</p>
+          <p class="hint" id="manualEdqHint">EDQ = LNG ROB άφιξης μείον το heel που θα κρατήσεις. Με κενό heel, εμφανίζεται ολόκληρη η ποσότητα άφιξης.</p>
           <div class="result-grid">
-            <label class="field">Heel μετά την εκφόρτωση (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
+            <label class="field" id="manualArrivalHeel">Heel μετά την εκφόρτωση (m³)<input type="number" min="0" step="any" data-analysis="heel"></label>
             <div class="result-box hero"><div class="r-label">Estimated Discharge Quantity</div><div class="r-value" id="edqOut">—</div></div>
           </div>
         </div>
@@ -489,6 +494,11 @@
     <!-- ================= 4. ΣΥΝΟΨΗ ================= -->
     <section class="panel" id="panel-results" role="tabpanel" aria-label="Σύνοψη αποτελεσμάτων">
       <div id="warnings" data-testid="text-warnings"></div>
+      <div class="card" id="summaryVoyageSequence" hidden>
+        <h2>Πλήρες ταξίδι · Σειρά πλου</h2>
+        <div class="table-wrap"><table class="data-table" id="summaryVoyageSequenceTable"></table></div>
+        <p class="hint" role="status" id="summaryVoyageSequenceStatus" hidden></p>
+      </div>
       <div class="card">
         <h2>Πλήρης σύνοψη πλόου</h2>
         <div class="table-wrap">
@@ -681,7 +691,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/ports.js"></script>
-  <script src="js/app.js?v=16"></script>
+  <script src="js/app.js?v=19"></script>
   <script src="js/operations.js?v=15"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
@@ -689,6 +699,6 @@
   <script src="js/ramp.js?v=15"></script>
   <script src="js/ramp-forms.js?v=15"></script>
   <script src="js/tank-step.js?v=15"></script>
-  <script src="js/linked.js?v=17"></script>
+  <script src="js/linked.js?v=19"></script>
 </body>
 </html>
