@@ -469,3 +469,19 @@ details > summary { cursor: pointer; }
 .ramp-offset-track { height: 0.7rem; position: relative; background: linear-gradient(90deg, transparent 49.5%, currentColor 49.5% 50.5%, transparent 50.5%); }
 .ramp-offset-track i { position: absolute; height: 100%; background: #49c5ed; }
 #rampOutput .table-wrap { margin-top: 0.7rem; }
+
+body:has(#panel-voyage.active, #panel-results.active) .summary-bar { display: none; }
+.voyage-stage > h2 { overflow-wrap: anywhere; }
+.voyage-stage > .grid-form,
+.voyage-stage > .result-grid,
+.voyage-stage > .ops-actions,
+.voyage-stage > .voyage-options,
+#returnAllowances { margin-top: var(--space-4); }
+.voyage-readout { color: var(--text-muted); margin-block: var(--space-3); }
+.voyage-options > summary, .card > summary { font-weight: 600; }
+.voyage-options[open] > summary, .card[open] > summary { margin-bottom: var(--space-3); }
+.voyage-stage fieldset { min-width: 0; }
+.voyage-stage .result-grid,
+.voyage-stage .grid-form { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.voyage-stage > .radio-row { margin-block: var(--space-3); }
+.voyage-stage .r-value { overflow-wrap: anywhere; }
