@@ -342,7 +342,7 @@ function compute(departureOverride) {
     rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
     foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, marginM3, marginText, requiredM3,
-    arrRobM3, arrRobM3Margin, arrFo, arrMdo,
+    departureLng, arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     cargoMode, cargoNote, cargoUsed, usableM3, dischargeHeel, edqM3, maxIntakeM3,
   };
 }
@@ -352,7 +352,24 @@ function cargoVolumeText(volume, withMass = true) {
   return fmt(volume, 0) + " m³" + (withMass && S.density > 0 ? " / " + fmt(volume * S.density, 1) + " t" : "");
 }
 
-function cargoArrivalRows(r) {
+function voyagePresentation() {
+  const standalone = compute();
+  const linked = standalone.cargoMode === "laden" && (S.linkedVoyage?.method || S.transfer?.loading?.tanks?.length)
+    ? computeLinkedVoyage() : null;
+  return { voyage: linked?.ladenBalance ? linked.outbound : standalone, linked };
+}
+
+function cargoArrivalRows(r, linked) {
+  if (linked) {
+    const rows = linked.ladenBalance ? ladenBalanceRows(linked.ladenBalance) : [];
+    if (linked.heelBalance) {
+      rows.push(["EDQ · πλάνο Cargo Transfer", cargoVolumeText(linked.heelBalance.edq)]);
+      rows.push(...heelBalanceRows(linked.heelBalance));
+    }
+    if (linked.inbound) rows.push(["Max Intake επόμενης φόρτωσης", cargoVolumeText(linked.inbound.maxIntakeM3)]);
+    if (linked.message) rows.push(["Έλεγχος συνδεδεμένου πλάνου", linked.message]);
+    return rows;
+  }
   if (!r.cargoMode || r.cargoMode === "mixed") return [["Εκτίμηση φορτίου", r.cargoNote]];
   const rows = [
     ["Μείωση LNG στον πλου", cargoVolumeText(r.cargoUsed)],
@@ -370,7 +387,7 @@ function cargoArrivalRows(r) {
 }
 
 /* ---------- Προαιρετική ανάλυση φορτίου, κόστους και εκπομπών ---------- */
-function analysisRows(r) {
+function analysisRows(r, linked) {
   const a = S.analysis;
   const get = (key) => {
     const value = optionalNumber(a[key]);
@@ -380,7 +397,7 @@ function analysisRows(r) {
   const add = (label, value, unit, precision = 2) => {
     if (Number.isFinite(value)) rows.push([label, `${fmt(value, precision)} ${unit}`]);
   };
-  const loaded = get("loaded");
+  const loaded = linked ? linked.ladenBalance?.loadedQuantity : get("loaded");
   const heel = get("heel");
   const days = r.days + (get("unloadDays") || 0);
   const bogRate = get("bor") / 100;
@@ -388,7 +405,7 @@ function analysisRows(r) {
   const netBog = grossBog - Math.min(grossBog, get("reliq") || 0);
   const lngUsed = r.lngM3;
   const cargoLoss = Number.isFinite(netBog) ? Math.max(lngUsed, netBog) : r.phaseForecast.cargoUsed;
-  const delivered = loaded - cargoLoss - (heel || 0);
+  const delivered = linked ? linked.heelBalance?.edq : loaded - cargoLoss - (heel || 0);
   const energyFactor = S.density * S.cvLNG * 0.00396832072;
   const loadedEnergy = loaded * energyFactor;
   const deliveredEnergy = delivered >= 0 ? delivered * energyFactor : NaN;
@@ -405,7 +422,7 @@ function analysisRows(r) {
   add("Θερμική ενέργεια παράδοσης", deliveredEnergy * 0.00029307107, "GWh");
   add("Εκτιμώμενη παραγωγή ηλεκτρικής ενέργειας", deliveredEnergy * 0.00029307107
     * (get("powerEfficiency") <= 100 ? get("powerEfficiency") / 100 : NaN), "GWh");
-  add("Ενδεικτικό heel για επιστροφή", get("returnLng") + r.coolTotal, "m³ LNG");
+  add("Ενδεικτικό heel για επιστροφή", linked ? linked.heelBalance?.required : get("returnLng") + r.coolTotal, "m³ LNG");
   if (term === "fob" || term === "dap") rows.push(["Εμπορικός όρος", term === "fob" ? "FOB" : "DES / DAP"]);
   if (Number.isFinite(delivered) && delivered < 0) rows.push(["Ισοζύγιο φορτίου", "Ελέγξτε τη φορτωμένη ποσότητα, την κατανάλωση και το heel."]);
   if (Number.isFinite(loaded) && loaded > r.usableM3) rows.push(["Φορτωμένη ποσότητα", "Υπερβαίνει τον χρησιμοποιήσιμο όγκο δεξαμενών."]);
@@ -559,9 +576,9 @@ function importJson(file) {
 }
 
 /* ---------- Αναφορά HTML ---------- */
-function buildReport(r) {
+function buildReport(r, linked) {
   const row = (k, v) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`;
-  const optionalRows = analysisRows(r);
+  const optionalRows = analysisRows(r, linked);
   const dt = (epoch, tz) => Number.isFinite(epoch)
     ? new Date(epoch + tz * HOUR).toLocaleString("el-GR", { timeZone: "UTC" }) + ` (UTC${tz >= 0 ? "+" : ""}${tz})` : "—";
   return `<!DOCTYPE html><html lang="el"><head><meta charset="utf-8">
@@ -579,6 +596,7 @@ th{background:#eee}
 </style></head><body>
 <h1>Αναφορά Πλόου LNG — ${r.from.name} → ${r.to.name}${r.canals.length ? " via " + r.canals.join(" + ") : ""}</h1>
 <p>Συντάχθηκε: ${new Date().toLocaleString("el-GR")}</p>
+${linked ? `<h2>Πλήρες ταξίδι · Σειρά πλου</h2><table>${voyageSequence(linked)}</table>` : ""}
 <h2>Σκέλη πλόου</h2><table>
 <tr><th>Σκέλος</th><th>Απόσταση</th></tr>
 ${r.legs.map((l, i) => `<tr><td>${i + 1}. ${l.from.name} → ${l.to.name}${l.canal ? " (" + l.canal.label + ")" : ""}</td><td class="num">${fmt(l.dist, 0)} nm${l.canal ? " · " + fmt(l.canal.hours, 1) + " h transit" : ""}<br>${legScheduleText(l)}</td></tr>`).join("")}
@@ -590,7 +608,7 @@ ${row("Άφιξη", dt(r.etaArrEpoch, S.arrTz))}
 ${row("Διάρκεια", fmt(r.days, 2) + " ημέρες (" + fmt(r.hours, 1) + " ώρες)")}
 ${row("Προτεινόμενη ταχύτητα", fmt(r.speed, 2) + " kn")}
 </table>
-<h2>Καταναλώσεις (ημερήσιες @ " + fmt(r.speed, 2) + " kn)</h2><table>
+<h2>Καταναλώσεις (ημερήσιες @ ${fmt(r.speed, 2)} kn)</h2><table>
 ${row("LNG", fmt(r.lngM3Day, 0) + " m³/ημ = " + fmt(r.lngTDay, 1) + " t/ημ")}
 ${row("Fuel Oil", fmt(r.foTDay, 2) + " t/ημ")}
 ${row("Diesel (MDO)", fmt(r.mdoTDay, 2) + " t/ημ")}
@@ -603,7 +621,7 @@ ${row("FOE LNG", fmt(r.foeLNG, 1) + " t (συντ. " + fmt(r.foeFactor, 3) + ")"
 ${row("Συνολικό FOE", fmt(r.foeTotal, 1) + " t")}
 </table>
 <h2>Αποθέματα (ROB)</h2><table>
-${row("LNG αναχώρησης", fmt(S.robLng, 0) + " m³ = " + fmt(S.robLng * S.density, 1) + " t")}
+${row("LNG αναχώρησης", cargoVolumeText(r.departureLng))}
 ${row("LNG άφιξης (υπολογισμός)", fmt(r.arrRobM3, 0) + " m³ = " + fmt(r.arrRobM3 * S.density, 1) + " t")}
 ${r.cargoMode === "ballast" ? row("LNG διαθέσιμο μετά από margin και cool-down", fmt(r.arrRobM3Margin, 0) + " m³ = " + fmt(r.arrRobM3Margin * S.density, 1) + " t") : ""}
 ${row("FO αναχώρησης / διαθέσιμο" + (r.cargoMode === "ballast" ? " μετά το margin" : " στην άφιξη"), fmt(S.robFo, 1) + " / " + fmt(r.arrFo, 1) + " t")}
@@ -613,7 +631,7 @@ ${r.cargoMode === "ballast" ? row("Safety margin", r.marginText) : ""}
 ${r.cargoMode === "ballast" ? row("Συνολική απαιτούμενη ποσότητα", fmt(r.requiredM3, 0) + " m³") : ""}
 </table>
 <h2>Εκτίμηση φορτίου στην άφιξη</h2><table>
-${cargoArrivalRows(r).map(([label, value]) => row(label, value)).join("")}
+${cargoArrivalRows(r, linked).map(([label, value]) => row(opsEscape(label), opsEscape(value))).join("")}
 </table>
 ${optionalRows.length ? `<h2>Ανάλυση φορτίου, κόστους και εκπομπών</h2><table>${optionalRows.map(([label, value]) => row(label, value)).join("")}</table>` : ""}
 <div class="sig"><div>Πλοίαρχος</div><div>Α' Μηχανικός</div><div>Ημ/νία</div></div>
@@ -621,11 +639,11 @@ ${optionalRows.length ? `<h2>Ανάλυση φορτίου, κόστους κα�
 }
 
 function exportReport() {
-  const r = compute();
+  const { voyage: r, linked } = voyagePresentation();
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(
     "LNG_Voyage_Report_" + stamp + ".html",
-    buildReport(r),
+    buildReport(r, linked),
     "text/html;charset=utf-8"
   );
 }
@@ -910,7 +928,8 @@ function renderConsumptionDetails(r) {
 
 /* ---------- Κύρια απεικόνιση αποτελεσμάτων ---------- */
 function render() {
-  const r = compute();
+  const { voyage: r, linked } = voyagePresentation();
+  const edq = linked ? linked.heelBalance?.edq : r.edqM3;
   const bad = (v) => !Number.isFinite(v);
 
   // Sticky σύνοψη
@@ -918,7 +937,7 @@ function render() {
   $("sumDays").textContent = bad(r.days) ? "—" : fmt(r.days, 1) + " ημ";
   $("sumSpeed").textContent = bad(r.speed) ? "—" : fmt(r.speed, 1) + " kn";
   $("sumLng").textContent = bad(r.lngM3) ? "—" : fmt(r.lngM3, 0) + " m³";
-  const arrivalQuantity = r.cargoMode === "laden" ? r.edqM3 : r.maxIntakeM3;
+  const arrivalQuantity = r.cargoMode === "laden" ? edq : r.maxIntakeM3;
   if ($("sumCargoLabel")) $("sumCargoLabel").textContent = r.cargoMode === "laden" ? "EDQ" : r.cargoMode === "ballast" ? "Max Intake" : "Φορτίο άφιξης";
   $("sumMaxIntake").textContent = cargoVolumeText(arrivalQuantity, false);
   $("sumSpeed").classList.toggle("bad", r.speed < 8 || r.speed > 21);
@@ -951,7 +970,8 @@ function render() {
   $("marginAmountLabel").textContent = {lng: "Ποσότητα LNG (m³)", fo: "Ποσότητα LSHFO (t)", mdo: "Ποσότητα LSMGO (t)"}[S.marginMode] || "Ποσότητα";
 
   // ROB & Απαιτήσεις
-  $("depLngOut").textContent = `${fmt(S.robLng, 0)} m³ = ${fmt(S.robLng * S.density, 1)} t`;
+  $("depLngOut").textContent = cargoVolumeText(r.departureLng);
+  $("linkedDepartureNote").hidden = !linked;
   $("arrLngOut").textContent = bad(r.arrRobM3) ? "—" : `${fmt(r.arrRobM3, 0)} m³ = ${fmt(r.arrRobM3 * S.density, 1)} t`;
   for (const id of ["arrLngMarginOut", "coolOut", "marginOut", "reqOut"]) {
     $(id).closest(".result-box").hidden = r.cargoMode !== "ballast";
@@ -973,18 +993,27 @@ function render() {
       : r.cargoMode === "ballast" ? "Ballast · Max Intake στο " + r.to.name : "Εκτίμηση φορτίου στην άφιξη";
     $("departureLngLabel").textContent = r.cargoMode === "laden" ? "Συνολικό LNG στο πλοίο μετά τη φόρτωση (m³)"
       : r.cargoMode === "ballast" ? "LNG heel αναχώρησης μετά την εκφόρτωση (m³)" : "LNG ROB αναχώρησης (m³)";
-    $("cargoArrivalNote").textContent = r.cargoNote;
-    $("cargoArrivalNote").hidden = !r.cargoNote;
+    $("cargoArrivalNote").textContent = linked
+      ? (linked.message || "Το EDQ και το heel υπολογίζονται από το πλάνο Cargo Transfer.")
+      : r.cargoNote;
+    $("cargoArrivalNote").hidden = !$("cargoArrivalNote").textContent;
+    $("manualArrivalHeel").hidden = Boolean(linked);
+    $("manualEdqHint").hidden = Boolean(linked);
     $("ladenArrival").hidden = r.cargoMode !== "laden";
     $("ballastArrival").hidden = r.cargoMode !== "ballast";
     $("cargoArrivalBalances").hidden = $("ladenArrival").hidden && $("ballastArrival").hidden;
     $("voyageCargoLoss").textContent = cargoVolumeText(r.cargoUsed);
     $("cargoArrivalRob").textContent = cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN);
-    $("edqOut").textContent = cargoVolumeText(r.edqM3);
+    $("edqOut").textContent = cargoVolumeText(edq);
     $("maxUsable").textContent = cargoVolumeText(r.usableM3, false);
     $("maxIntakeOut").textContent = cargoVolumeText(r.maxIntakeM3, false);
     $("maxIntakeTOut").textContent = Number.isFinite(r.maxIntakeM3) && S.density > 0 ? fmt(r.maxIntakeM3 * S.density, 1) + " t" : "—";
   }
+
+  $("summaryVoyageSequence").hidden = !linked;
+  $("summaryVoyageSequenceTable").innerHTML = linked ? voyageSequence(linked) : "";
+  $("summaryVoyageSequenceStatus").textContent = linked?.message ?? "";
+  $("summaryVoyageSequenceStatus").hidden = !linked?.message;
 
   // Πλήρης σύνοψη (tab 4)
   const dt = (epoch) => Number.isFinite(epoch)
@@ -1007,7 +1036,7 @@ function render() {
     <tr><td>Συνολικό FOE (t)</td><td class="num">${fmt(r.foeTotal, 1)}</td></tr>
     </tbody>
     <thead><tr><th colspan="2">Αποθέματα (ROB)</th></tr></thead><tbody>
-    <tr><td>LNG αναχώρησης</td><td class="num">${fmt(S.robLng, 0)} m³ = ${fmt(S.robLng * S.density, 1)} t</td></tr>
+    <tr><td>LNG αναχώρησης</td><td class="num">${cargoVolumeText(r.departureLng)}</td></tr>
     <tr><td>LNG άφιξης (υπολογισμός)</td><td class="num">${fmt(r.arrRobM3, 0)} m³ = ${fmt(r.arrRobM3 * S.density, 1)} t</td></tr>
     ${r.cargoMode === "ballast" ? `<tr><td>LNG διαθέσιμο μετά από margin και cool-down</td><td class="num">${fmt(r.arrRobM3Margin, 0)} m³ = ${fmt(r.arrRobM3Margin * S.density, 1)} t</td></tr>` : ""}
     <tr><td>FO / MDO διαθέσιμα ${r.cargoMode === "ballast" ? "μετά το margin" : "στην άφιξη"}</td><td class="num">${fmt(r.arrFo, 1)} t / ${fmt(r.arrMdo, 1)} t</td></tr>
@@ -1015,10 +1044,15 @@ function render() {
     ${r.cargoMode === "ballast" ? `<tr><td>Συνολική απαιτούμενη ποσότητα LNG</td><td class="num">${fmt(r.requiredM3, 0)} m³</td></tr>` : ""}
     </tbody>
     <thead><tr><th colspan="2">Εκτίμηση φορτίου στην άφιξη</th></tr></thead><tbody>
-    ${cargoArrivalRows(r).map(([label, value]) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`).join("")}
+    ${cargoArrivalRows(r, linked).map(([label, value]) => `<tr><td>${opsEscape(label)}</td><td class="num">${opsEscape(value)}</td></tr>`).join("")}
     </tbody>`;
 
-  const optionalRows = analysisRows(r);
+  for (const key of ["loaded", "heel", "returnLng"]) {
+    for (const field of document.querySelectorAll(`[data-analysis="${key}"]`)) {
+      field.closest(".field").hidden = Boolean(linked);
+    }
+  }
+  const optionalRows = analysisRows(r, linked);
   $("analysisResults").hidden = optionalRows.length === 0;
   $("analysisResults").querySelector("tbody").innerHTML = optionalRows
     .map(([label, value]) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`).join("");
@@ -1051,7 +1085,7 @@ function render() {
       ? '<div class="alert ok">Όλες οι ποσότητες επαρκείς για τον πλόο με βάση τα τρέχοντα δεδομένα.</div>'
       : "";
   }
-  if (typeof renderLinkedVoyage === "function") renderLinkedVoyage(r);
+  if (typeof renderLinkedVoyage === "function") renderLinkedVoyage(r, linked);
   renderPhaseForecast(r);
   if (typeof renderCharterParty === "function") renderCharterParty(r);
   if (typeof renderCargoCalibration === "function") renderCargoCalibration();
