@@ -10,7 +10,7 @@ function linkedReturnRoute(state = S) {
       toIdx: i === outbound.length - 1 ? reverse.fromIdx : edit.toIdx ?? reverse.fromIdx,
       distMode: edit.manualDist !== undefined && edit.manualDist !== "" ? "manual" : edit.useGc || state.linkedVoyage?.returnLegs?.[i - 1]?.useGc ? "gc" : reverse.distMode,
       manualDist: edit.manualDist !== undefined && edit.manualDist !== "" ? Number(edit.manualDist) : reverse.manualDist,
-      stopArrival: edit.stopArrival, stopDeparture: edit.stopDeparture, stopTz: 0,
+      stopArrival: i === outbound.length - 1 && state.linkedVoyage?.speedMode ? undefined : edit.stopArrival, stopDeparture: edit.stopDeparture, stopTz: 0,
       phase: "ballast",
     };
   });
@@ -47,6 +47,7 @@ function computeLinkedVoyage() {
     return value;
   };
   let step = "Φόρτωση";
+  let outbound;
   try {
     if (!S.legs.some(leg => !legCanal(leg.fromIdx, leg.toIdx)) ||
         S.legs.some(leg => !legCanal(leg.fromIdx, leg.toIdx) && leg.phase === "ballast")) {
@@ -65,7 +66,7 @@ function computeLinkedVoyage() {
     step = "Laden";
     const ladenRob = loadedRob - loss("loaded");
     if (ladenRob < 0) throw new Error("Η μείωση LNG μετά τη φόρτωση υπερβαίνει το τελικό ROB της.");
-    const outbound = withVoyage({ ...S, robLng: ladenRob });
+    outbound = withVoyage({ ...S, robLng: ladenRob });
     if (outbound.scheduleErrors.length) throw new Error(outbound.scheduleErrors[0]);
     if (!Number.isFinite(outbound.etaArrEpoch) || !(outbound.arrRobM3 >= 0)) throw new Error("Έλεγξε το χρονοδιάγραμμα και την επάρκεια LNG του Laden πλου.");
     const ladenFo = optionalNumber(S.robFo);
@@ -99,17 +100,22 @@ function computeLinkedVoyage() {
 
     step = "Ballast";
     const last = S.legs.at(-1);
-    const departure = last.stopDeparture ? stopEpoch(last.stopDeparture, last.stopTz ?? S.arrTz) : finish;
+    const departure = settings.departure ? opsDate(settings.departure)
+      : last.stopDeparture ? stopEpoch(last.stopDeparture, last.stopTz ?? S.arrTz) : finish;
     if (!(departure >= finish - 30000)) throw new Error("Η αναχώρηση Ballast προηγείται του τέλους εκφόρτωσης.");
     const returnRob = heel - loss("after");
     if (returnRob < 0) throw new Error("Η μείωση LNG μετά την εκφόρτωση υπερβαίνει το heel.");
     const serviceSpeed = settings.speed == null || settings.speed === "" ? S.serviceSpeed : optionalNumber(settings.speed);
-    if (!(serviceSpeed > 0)) throw new Error("Συμπλήρωσε θετική ταχύτητα επιστροφής.");
+    const byArrival = settings.speedMode === "eta";
+    const target = byArrival ? opsDate(settings.arrival) : NaN;
+    if (byArrival && !(target > departure)) throw new Error("Δήλωσε επιθυμητή άφιξη μετά την αναχώρηση Ballast.");
+    if (!byArrival && !(serviceSpeed > 0)) throw new Error("Συμπλήρωσε θετική ταχύτητα επιστροφής.");
     const [depDate, depTime] = opsIso(departure).split("T");
     const returnFo = arrivalFo - loss("portFo");
     const returnMdo = arrivalMdo - loss("portMdo");
+    const [arrDate, arrTime] = opsIso(target).split("T");
     const returnState = { ...S, robFo: returnFo, robMdo: returnMdo, legs: linkedReturnRoute(), robLng: returnRob,
-      depDate, depTime, depTz: 0, arrTz: 0, speedMode: "speed", serviceSpeed };
+      depDate, depTime, depTz: 0, arrDate, arrTime, arrTz: 0, speedMode: byArrival ? "eta" : "speed", serviceSpeed };
     if (returnState.legs.some(leg => leg.distMode === "manual" && !(leg.manualDist >= 0))) throw new Error("Έλεγξε τα μίλια της επιστροφής.");
     const inbound = withVoyage(returnState, () => compute(departure));
     if (inbound.scheduleErrors.length) throw new Error(inbound.scheduleErrors[0]);
@@ -120,17 +126,56 @@ function computeLinkedVoyage() {
       const [label, quantity] = ["Max Intake επόμενης φόρτωσης", cargoVolumeText(inbound.maxIntakeM3)];
       rows.push([label, utcText(inbound.etaArrEpoch), "—", "—", quantity, "—", "—", "—"]);
     }
-    const shortage = [arrivalFo, arrivalMdo, returnFo - inbound.foT, returnMdo - inbound.mdoT].some(value => value < 0);
-    return { rows, message: shortage ? "Ανεπαρκές LSHFO ή MDO σε τουλάχιστον μία φάση του ταξιδιού." : "" };
+    const warnings = [];
+    if ([arrivalFo, arrivalMdo, inbound.arrFo, inbound.arrMdo].some(value => value < 0)) {
+      warnings.push("Ανεπαρκές LSHFO ή LSMGO για τον κύκλο, μαζί με τυχόν απόθεμα Ballast.");
+    }
+    if (inbound.arrRobM3Margin < 0) warnings.push("Το heel επιστροφής δεν καλύπτει τη μείωση LNG, το safety margin και το cool-down.");
+    if (inbound.rateOutsideTable) warnings.push("Η ταχύτητα επιστροφής είναι εκτός της καμπύλης καταναλώσεων.");
+    return { rows, outbound, inbound, message: warnings.join(" ") };
   } catch (error) {
-    return { rows, message: step + " · " + error.message };
+    return { rows, outbound, message: step + " · " + error.message };
   }
 }
 
-function renderLinkedVoyage() {
+function renderLinkedVoyage(main = compute()) {
   const panel = $("linkedVoyage");
-  if (!panel?.open) return;
-  const { rows, message } = computeLinkedVoyage();
+  const picker = $("consVoyage");
+  const standalone = main.cargoMode === "ballast";
+  picker.options[1].hidden = standalone;
+  if (standalone) picker.value = "outbound";
+  const returning = picker.value === "return";
+  const linked = panel.open || (returning && !standalone) ? computeLinkedVoyage() : null;
+  const result = standalone ? main : returning ? linked?.inbound : linked?.outbound ?? main;
+  const settings = S.linkedVoyage ?? {};
+  const byArrival = settings.speedMode === "eta";
+  $("returnSpeedField").hidden = byArrival;
+  $("returnArrivalField").hidden = !byArrival;
+  $("ballastAllowances").hidden = !returning && !standalone;
+  $("goReturn").hidden = !returning || standalone;
+  picker.options[0].text = standalone ? "Ενεργός πλους · Ballast" : main.cargoMode === "laden" ? "Μετάβαση · Laden" : "Ενεργός πλους";
+  $("consVoyageStatus").textContent = result
+    ? result.from.name + " → " + result.to.name + (returning && linked?.message ? " · " + linked.message : "")
+    : linked?.message ?? "Συμπλήρωσε το πλάνο επιστροφής.";
+  const summary = result ? [
+    ["Διάρκεια / μέση ταχύτητα", fmt(result.hours, 2) + " h · " + fmt(result.speed, 2) + " kn"],
+    ["LNG καύσιμο", cargoVolumeText(result.lngM3)], ["Μείωση LNG ROB", cargoVolumeText(result.cargoUsed)],
+    ["LSHFO / LSMGO", fmt(result.foT, 2) + " t / " + fmt(result.mdoT, 2) + " t"],
+  ] : [];
+  if (result?.cargoMode === "ballast") summary.push(
+    ["Heel αναχώρησης", cargoVolumeText(result.arrRobM3 + result.cargoUsed)],
+    ["ROB άφιξης", cargoVolumeText(result.arrRobM3)],
+    ["Safety margin / cool-down", result.marginText + " / " + cargoVolumeText(result.coolTotal, false)],
+    ["LNG διαθέσιμο μετά τις προβλέψεις", cargoVolumeText(result.arrRobM3Margin)],
+    ["Max Intake βάσει ROB άφιξης", cargoVolumeText(result.maxIntakeM3)]
+  );
+  $("consVoyageTable").innerHTML = summary.length ? tableHtml(["Μέγεθος", "Πρόβλεψη"], summary) : "";
+  renderConsumptionDetails(result);
+  if (!panel.open) return;
+  const { rows, message, inbound } = linked;
+  $("returnHeadline").textContent = inbound
+    ? "Αναχώρηση " + utcText(inbound.depEpoch) + " · ETA " + utcText(inbound.etaArrEpoch) + " · " + fmt(inbound.speed, 2) + " kn"
+    : "";
   $("linkedStatus").textContent = message;
   $("linkedStatus").hidden = !message;
   $("linkedTimeline").innerHTML = tableHtml(
@@ -142,7 +187,7 @@ function syncLinkedVoyage() {
   if (!panel) return;
   const settings = S.linkedVoyage ?? {};
   for (const input of panel.querySelectorAll("[data-linked]")) {
-    input.value = settings[input.dataset.linked] ?? (input.dataset.linked === "method" ? "forms" : "");
+    input.value = settings[input.dataset.linked] ?? (input.dataset.linked === "method" ? "forms" : input.dataset.linked === "speedMode" ? "speed" : "");
   }
   $("returnRoute").innerHTML = panel.open ? linkedReturnRoute().map((leg, i, route) => {
     const edit = settings.returnLegs?.[i] ?? {};
@@ -154,7 +199,7 @@ function syncLinkedVoyage() {
       ${i === route.length - 1 ? `<p>${opsEscape(PORTS[leg.toIdx]?.name)}</p>` :
         `<label class="field">Προς<select data-return-index="${i}" data-return-key="toIdx">${portOptions(leg.toIdx)}</select></label>`}
       ${field("manualDist", "number", "Χειροκίνητα nm", 'min="0" step="any"')}
-      ${field("stopArrival", "datetime-local", "Άφιξη (UTC)")}
+      ${i < route.length - 1 || (!settings.speedMode && edit.stopArrival) ? field("stopArrival", "datetime-local", "Άφιξη (UTC)") : ""}
       ${i < route.length - 1 ? field("stopDeparture", "datetime-local", "Αναχώρηση (UTC)") : ""}
       </div></fieldset>`;
   }).join("") : "";
@@ -165,12 +210,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const panel = $("linkedVoyage");
   if (!panel) return;
   panel.addEventListener("toggle", syncLinkedVoyage);
-  $("transferPlanner")?.addEventListener("change", renderLinkedVoyage);
+  $("consVoyage").addEventListener("change", () => renderLinkedVoyage());
+  $("goReturn").addEventListener("click", () => {
+    document.querySelector('[data-panel="panel-voyage"]').click();
+    panel.open = true;
+    panel.scrollIntoView({ block: "start" });
+    $("returnSpeedField").closest(".grid-form").querySelector("input").focus({ preventScroll: true });
+  });
+  $("transferPlanner")?.addEventListener("change", () => renderLinkedVoyage());
   panel.addEventListener("change", event => {
     const { linked, returnIndex, returnKey } = event.target.dataset;
     if (!linked && !returnKey) return;
     const settings = S.linkedVoyage ??= {};
-    if (linked) settings[linked] = event.target.value;
+    if (linked) {
+      settings[linked] = event.target.value;
+      if (linked === "speedMode") {
+        const legacyTarget = settings.returnLegs?.[S.legs.length - 1]?.stopArrival;
+        if (settings.speedMode === "eta" && !settings.arrival && legacyTarget) settings.arrival = legacyTarget;
+        syncLinkedVoyage();
+        return;
+      }
+    }
     else {
       const legs = settings.returnLegs ??= {};
       const leg = legs[returnIndex] ??= {};
