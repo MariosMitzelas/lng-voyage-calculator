@@ -142,6 +142,10 @@
       <details class="card" id="linkedVoyage">
         <summary><strong>Πλήρες ταξίδι · Φόρτωση → Laden → Εκφόρτωση → Ballast</strong></summary>
         <p class="hint">Χρησιμοποίησε τα παραπάνω σκέλη για τον Laden πλου και τα πλάνα φόρτωσης και εκφόρτωσης από το Cargo Transfer. Η επιστροφή ξεκινά από το λιμάνι εκφόρτωσης με αντίστροφη διαδρομή και δικές της ρυθμίσεις.</p>
+        <div id="linkedLadenBalance" hidden>
+          <h3>Laden · Από το τέλος φόρτωσης έως την έναρξη εκφόρτωσης</h3>
+          <div class="table-wrap"><table class="data-table" id="linkedLadenTable"></table></div>
+        </div>
         <h3>Επιστροφή Ballast</h3>
         <div class="grid-form">
           <label class="field">Αναχώρηση από το λιμάνι εκφόρτωσης (UTC)<input data-linked="departure" type="datetime-local"></label>
@@ -151,6 +155,11 @@
         </div>
         <p class="hint">Κενή αναχώρηση χρησιμοποιεί την ώρα αναχώρησης του τελικού σημείου Laden ή το τέλος εκφόρτωσης.</p>
         <div id="returnHeadline" class="hint" role="status"></div>
+        <div id="linkedHeelBalance" hidden>
+          <h4>Required heel και heel που θα κρατήσεις</h4>
+          <p class="hint">Το required heel καλύπτει τη δηλωμένη μείωση LNG στο λιμάνι, τη μείωση στον Ballast πλου, το τυχόν περιθώριο σε LNG και το cool-down. Το heel που θα κρατήσεις είναι το σύνολο των στόχων ανά δεξαμενή στο Cargo Transfer.</p>
+          <div class="table-wrap"><table class="data-table" id="linkedHeelTable"></table></div>
+        </div>
         <details>
           <summary>Διαδρομή επιστροφής και στοιχεία λιμένα</summary>
           <div id="returnRoute"></div>
@@ -680,6 +689,6 @@
   <script src="js/ramp.js?v=15"></script>
   <script src="js/ramp-forms.js?v=15"></script>
   <script src="js/tank-step.js?v=15"></script>
-  <script src="js/linked.js?v=16"></script>
+  <script src="js/linked.js?v=17"></script>
 </body>
 </html>
