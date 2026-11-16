@@ -2,15 +2,24 @@
 
 function linkedReturnRoute(state = S) {
   const outbound = state.legs;
+  const settings = state.linkedVoyage ?? {};
+  const loadingPort = outbound[0]?.fromIdx;
+  const nextPort = settings.nextPort === "" || settings.nextPort == null ? loadingPort : Number(settings.nextPort);
+  if (settings.distance != null && settings.distance !== "") {
+    return [{ fromIdx: outbound.at(-1)?.toIdx, toIdx: nextPort, distMode: "manual",
+      manualDist: Number(settings.distance), phase: "ballast" }];
+  }
   return outbound.map((_, i) => {
     const reverse = outbound[outbound.length - 1 - i];
-    const edit = state.linkedVoyage?.returnLegs?.[i] ?? {};
+    const last = i === outbound.length - 1;
+    const edit = settings.returnLegs?.[i] ?? {};
+    const differentPort = last && nextPort !== loadingPort;
     return {
       fromIdx: i === 0 ? reverse.toIdx : state.linkedVoyage?.returnLegs?.[i - 1]?.toIdx ?? reverse.toIdx,
-      toIdx: i === outbound.length - 1 ? reverse.fromIdx : edit.toIdx ?? reverse.fromIdx,
-      distMode: edit.manualDist !== undefined && edit.manualDist !== "" ? "manual" : edit.useGc || state.linkedVoyage?.returnLegs?.[i - 1]?.useGc ? "gc" : reverse.distMode,
+      toIdx: last ? nextPort : edit.toIdx ?? reverse.fromIdx,
+      distMode: differentPort ? "gc" : edit.manualDist !== undefined && edit.manualDist !== "" ? "manual" : edit.useGc || state.linkedVoyage?.returnLegs?.[i - 1]?.useGc ? "gc" : reverse.distMode,
       manualDist: edit.manualDist !== undefined && edit.manualDist !== "" ? Number(edit.manualDist) : reverse.manualDist,
-      stopArrival: i === outbound.length - 1 && state.linkedVoyage?.speedMode ? undefined : edit.stopArrival, stopDeparture: edit.stopDeparture, stopTz: 0,
+      stopArrival: last && (settings.speedMode || differentPort) ? undefined : edit.stopArrival, stopDeparture: last ? undefined : edit.stopDeparture, stopTz: 0,
       phase: "ballast",
     };
   });
@@ -40,6 +49,33 @@ function linkedCargoSource() {
     ?? (S.linkedVoyage?.method || S.transfer?.loading?.tanks?.length ? "transfer" : "manual");
 }
 
+// With ROB-based boil-off the return requirement depends on the heel itself.
+function forecastRequiredHeel(forecast) {
+  const empty = forecast(0);
+  const atDemand = forecast(empty.requiredM3);
+  if (Math.abs(atDemand.requiredM3 - empty.requiredM3) < 1e-6) return atDemand;
+  let lo = empty.requiredM3;
+  let hi = Math.max(atDemand.requiredM3, lo * 2, 1);
+  let estimate = forecast(hi);
+  for (let i = 0; estimate.requiredM3 > hi && i < 24; i++) {
+    hi *= 2;
+    estimate = forecast(hi);
+  }
+  if (!(estimate.requiredM3 <= hi)) {
+    throw new Error("Δεν προκύπτει επαρκές heel με το Ballast BOR και τις προβλέψεις που έδωσες.");
+  }
+  for (let i = 0; i < 36 && hi - lo > 1e-5; i++) {
+    const candidate = (lo + hi) / 2;
+    const result = forecast(candidate);
+    if (result.requiredM3 > candidate) lo = candidate;
+    else {
+      hi = candidate;
+      estimate = result;
+    }
+  }
+  return estimate;
+}
+
 function computeLinkedVoyage(main) {
   const useTransfer = linkedCargoSource() === "transfer";
   const settings = S.linkedVoyage ?? {};
@@ -56,12 +92,15 @@ function computeLinkedVoyage(main) {
   let outbound;
   let ladenBalance;
   let heelBalance;
+  let requiredForecast;
+  const warnings = [];
   try {
     if (!S.legs.some(leg => !legCanal(leg.fromIdx, leg.toIdx)) ||
         S.legs.some(leg => !legCanal(leg.fromIdx, leg.toIdx) && leg.phase === "ballast")) {
       throw new Error("Δήλωσε τα σκέλη της μετάβασης ως Laden στην καρτέλα Ταξίδι & Απόσταση.");
     }
     let finish = NaN;
+    let availableToDischarge;
     if (useTransfer) {
       const loaded = linkedTransfer(S.transfer?.loading, "loading", settings.method ?? "forms");
       const dep = localToEpoch(S.depDate, S.depTime, S.depTz);
@@ -90,84 +129,115 @@ function computeLinkedVoyage(main) {
       step = "Εκφόρτωση";
       const unload = S.transfer?.unloading;
       const preDischarge = loss("before");
-      const arrivalRob = outbound.arrRobM3 - preDischarge;
+      const arrivalRob = availableToDischarge = outbound.arrRobM3 - preDischarge;
       if (arrivalRob < 0) throw new Error("Η μείωση LNG πριν την εκφόρτωση υπερβαίνει το ROB άφιξης.");
       ladenBalance = { loadedRob, loadedQuantity: loaded.moved, arrivalRob, postLoading, preDischarge, voyageLoss: outbound.cargoUsed, fuelUsed: outbound.lngM3 };
-      const tankIds = new Set(unload?.tanks?.map(tank => tank.id));
-      if (tankIds.size !== loaded.volumes.size || [...loaded.volumes.keys()].some(id => !tankIds.has(id))) {
-        throw new Error("Χρησιμοποίησε τα ίδια tank IDs στη φόρτωση και την εκφόρτωση.");
+      try {
+        const tankIds = new Set(unload?.tanks?.map(tank => tank.id));
+        if (tankIds.size !== loaded.volumes.size || [...loaded.volumes.keys()].some(id => !tankIds.has(id))) {
+          throw new Error("Χρησιμοποίησε τα ίδια tank IDs στη φόρτωση και την εκφόρτωση.");
+        }
+        const enteredRob = unload.tanks.map(tank => optionalNumber(tank.start));
+        const totalEntered = enteredRob.reduce((sum, volume) => sum + volume, 0);
+        if (enteredRob.some(volume => !(volume >= 0)) || !(totalEntered > 0)) {
+          throw new Error("Βάλε αρχικά m³ ανά tank στο πλάνο εκφόρτωσης για την κατανομή του ROB άφιξης.");
+        }
+        const tanks = unload.tanks.map((tank, i) => ({ ...tank, start: arrivalRob * enteredRob[i] / totalEntered }));
+        const start = unload.start ? opsDate(unload.start) : outbound.etaArrEpoch;
+        if (!(start >= outbound.etaArrEpoch - 30000)) throw new Error("Η έναρξη εκφόρτωσης προηγείται της άφιξης ή έχει μη έγκυρη ώρα.");
+        add("Έναρξη εκφόρτωσης", start, (start - outbound.etaArrEpoch) / HOUR, arrivalRob);
+        const unloaded = linkedTransfer({ ...unload, tanks, start: opsIso(start) }, "unloading", settings.method ?? "forms");
+        finish = start + unloaded.minutes * 60000;
+        const heel = [...unloaded.volumes.values()].reduce((sum, volume) => sum + volume, 0);
+        add("Τέλος εκφόρτωσης · Cargo Transfer", finish, unloaded.minutes / 60, heel, unloaded.moved);
+        heelBalance = { planned: heel, plannedEdq: unloaded.moved };
+      } catch (error) {
+        warnings.push("Πλάνο εκφόρτωσης · " + error.message);
       }
-      const enteredRob = unload.tanks.map(tank => optionalNumber(tank.start));
-      const totalEntered = enteredRob.reduce((sum, volume) => sum + volume, 0);
-      if (enteredRob.some(volume => !(volume >= 0)) || !(totalEntered > 0)) {
-        throw new Error("Βάλε αρχικά m³ ανά tank στο πλάνο εκφόρτωσης για την κατανομή του ROB άφιξης.");
-      }
-      const tanks = unload.tanks.map((tank, i) => ({ ...tank, start: arrivalRob * enteredRob[i] / totalEntered }));
-      const start = unload.start ? opsDate(unload.start) : outbound.etaArrEpoch;
-      if (!(start >= outbound.etaArrEpoch - 30000)) throw new Error("Η έναρξη εκφόρτωσης προηγείται της άφιξης ή έχει μη έγκυρη ώρα.");
-      add("Έναρξη εκφόρτωσης", start, (start - outbound.etaArrEpoch) / HOUR, arrivalRob);
-      const unloaded = linkedTransfer({ ...unload, tanks, start: opsIso(start) }, "unloading", settings.method ?? "forms");
-      finish = start + unloaded.minutes * 60000;
-      const heel = [...unloaded.volumes.values()].reduce((sum, volume) => sum + volume, 0);
-      add("Τέλος εκφόρτωσης · EDQ", finish, unloaded.minutes / 60, heel, unloaded.moved);
-      heelBalance = { planned: heel, edq: unloaded.moved };
 
     } else {
       step = "Laden";
       outbound = main ?? compute();
       if (outbound.scheduleErrors.length) throw new Error(outbound.scheduleErrors[0]);
       if (!Number.isFinite(outbound.etaArrEpoch)) throw new Error("Συμπλήρωσε το χρονοδιάγραμμα του Laden πλου.");
-      const arrivalRob = outbound.arrRobM3 - loss("before");
+      const arrivalRob = availableToDischarge = outbound.arrRobM3 - loss("before");
       const heel = optionalNumber(S.analysis.heel);
-      heelBalance = { planned: heel >= 0 ? heel : NaN, edq: heel >= 0 && arrivalRob >= heel ? arrivalRob - heel : NaN };
-      if (heel < 0) throw new Error("Συμπλήρωσε μη αρνητικό heel.");
+      if (heel >= 0 && arrivalRob >= heel) heelBalance = { planned: heel, plannedEdq: arrivalRob - heel };
+      if (heel < 0) warnings.push("Το προαιρετικό heel πρέπει να είναι μη αρνητικό.");
       if (!(outbound.departureLng >= 0)) throw new Error("Συμπλήρωσε το LNG ROB αναχώρησης.");
       if (Number.isFinite(arrivalRob) && arrivalRob < 0) throw new Error("Το LNG αναχώρησης δεν καλύπτει τη μείωση μέχρι την εκφόρτωση.");
-      if (heel > arrivalRob) throw new Error("Το heel που επέλεξες ξεπερνά το διαθέσιμο LNG στην εκφόρτωση.");
+      if (heel > arrivalRob) warnings.push("Το προαιρετικό heel ξεπερνά το διαθέσιμο LNG στην εκφόρτωση.");
     }
 
     step = "Ballast";
     const last = S.legs.at(-1);
     const departure = settings.departure ? opsDate(settings.departure)
       : last.stopDeparture ? stopEpoch(last.stopDeparture, last.stopTz ?? S.arrTz) : finish;
-    if (!Number.isFinite(departure)) throw new Error("Συμπλήρωσε την αναχώρηση Ballast.");
-    if (useTransfer && departure < finish - 30000) throw new Error("Η αναχώρηση Ballast προηγείται του τέλους εκφόρτωσης.");
-    if (!useTransfer && departure < outbound.etaArrEpoch) throw new Error("Η αναχώρηση Ballast προηγείται της άφιξης στο λιμάνι εκφόρτωσης.");
-    const postDischarge = loss("after");
-    const returnRob = heelBalance.planned - postDischarge;
-    heelBalance = { ...heelBalance, departure, postDischarge, returnRob };
-    const serviceSpeed = settings.speed == null || settings.speed === "" ? S.serviceSpeed : optionalNumber(settings.speed);
+    const route = linkedReturnRoute();
+    if (route.some(leg => !PORTS[leg.fromIdx] || !PORTS[leg.toIdx] || leg.fromIdx === leg.toIdx
+      || leg.distMode === "manual" && !(leg.manualDist > 0))) {
+      throw new Error("Έλεγξε τα λιμάνια και τα μίλια της επιστροφής.");
+    }
+    const hasDeparture = Number.isFinite(departure);
     const byArrival = settings.speedMode === "eta";
+    if (!hasDeparture && (settings.departure || byArrival || route.some(leg => leg.stopArrival || leg.stopDeparture))) {
+      throw new Error("Συμπλήρωσε την αναχώρηση Ballast.");
+    }
+    if (useTransfer && departure < finish - 30000) throw new Error("Η αναχώρηση Ballast προηγείται του τέλους εκφόρτωσης.");
+    if (departure < outbound.etaArrEpoch - 30000) throw new Error("Η αναχώρηση Ballast προηγείται της άφιξης στο λιμάνι εκφόρτωσης.");
+    const postDischarge = loss("after");
+    heelBalance = { ...heelBalance, departure, postDischarge };
+    const serviceSpeed = settings.speed == null || settings.speed === "" ? S.serviceSpeed : optionalNumber(settings.speed);
     const target = byArrival ? opsDate(settings.arrival) : NaN;
     if (byArrival && !(target > departure)) throw new Error("Δήλωσε επιθυμητή άφιξη μετά την αναχώρηση Ballast.");
     if (!byArrival && !(serviceSpeed > 0)) throw new Error("Συμπλήρωσε θετική ταχύτητα επιστροφής.");
-    const [depDate, depTime] = opsIso(departure).split("T");
+    const departureForForecast = hasDeparture ? departure : outbound.etaArrEpoch;
+    const [depDate, depTime] = opsIso(departureForForecast).split("T");
     const returnFo = optionalNumber(S.robFo) - outbound.foT - loss("portFo");
     const returnMdo = optionalNumber(S.robMdo) - outbound.mdoT - loss("portMdo");
     const [arrDate, arrTime] = opsIso(target).split("T");
-    const returnState = { ...S, robFo: returnFo, robMdo: returnMdo, legs: linkedReturnRoute(), robLng: returnRob,
+    const returnState = { ...S, robFo: returnFo, robMdo: returnMdo, legs: route,
       depDate, depTime, depTz: 0, arrDate, arrTime, arrTz: 0, speedMode: byArrival ? "eta" : "speed", serviceSpeed };
-    if (returnState.legs.some(leg => leg.distMode === "manual" && !(leg.manualDist >= 0))) throw new Error("Έλεγξε τα μίλια της επιστροφής.");
-    const inbound = withVoyage(returnState, () => compute(departure));
-    if (inbound.scheduleErrors.length) throw new Error(inbound.scheduleErrors[0]);
-    if (!Number.isFinite(inbound.etaArrEpoch)) throw new Error("Έλεγξε το χρονοδιάγραμμα του Ballast σκέλους.");
-    heelBalance.required = inbound.requiredM3 + postDischarge;
+    const forecast = robLng => withVoyage({ ...returnState, robLng }, () => {
+      const result = compute(departureForForecast);
+      if (result.scheduleErrors.length) throw new Error(result.scheduleErrors[0]);
+      if (!Number.isFinite(result.etaArrEpoch) || !Number.isFinite(result.requiredM3)) {
+        throw new Error("Έλεγξε το χρονοδιάγραμμα και τις καταναλώσεις Ballast.");
+      }
+      return result;
+    });
+    requiredForecast = forecastRequiredHeel(forecast);
+    const required = requiredForecast.requiredM3 + postDischarge;
+    const edq = availableToDischarge >= 0 ? Math.max(0, availableToDischarge - required) : NaN;
+    const hasPlannedHeel = Number.isFinite(heelBalance.planned);
+    const canRetainHeel = availableToDischarge >= required;
+    const returnRob = canRetainHeel ? requiredForecast.requiredM3 : NaN;
+    const inbound = { ...requiredForecast };
+    if (!canRetainHeel) {
+      inbound.departureLng = NaN;
+      inbound.arrRobM3 = NaN;
+      inbound.arrRobM3Margin = NaN;
+      inbound.maxIntakeM3 = NaN;
+    }
+    heelBalance = { ...heelBalance, required, edq, availableToDischarge, returnRob };
+    if (!hasDeparture) {
+      inbound.depEpoch = NaN;
+      inbound.etaArrEpoch = NaN;
+    }
+    add("EDQ βάσει Required Heel", NaN, NaN, availableToDischarge, edq);
     add("Αναχώρηση Ballast · " + inbound.from.name, departure, NaN, returnRob, NaN, NaN, returnFo, returnMdo);
     add("Άφιξη Ballast · " + inbound.to.name, inbound.etaArrEpoch, inbound.hours, inbound.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN, inbound.cargoUsed, inbound.distance, returnFo - inbound.foT, returnMdo - inbound.mdoT);
     if (Number.isFinite(inbound.maxIntakeM3)) {
       const [label, quantity] = ["Max Intake επόμενης φόρτωσης", cargoVolumeText(inbound.maxIntakeM3)];
       rows.push([label, utcText(inbound.etaArrEpoch), "—", "—", quantity, "—", "—", "—"]);
     }
-    const warnings = [];
     if ([returnFo, returnMdo, inbound.arrFo, inbound.arrMdo].some(value => value < 0)) {
       warnings.push("Ανεπαρκές LSHFO ή LSMGO για τον κύκλο, μαζί με τυχόν απόθεμα Ballast.");
     }
-    if (returnRob < 0 || inbound.arrRobM3Margin < 0) warnings.push("Το heel επιστροφής δεν καλύπτει τη μείωση LNG, το safety margin και το cool-down.");
-    if (!Number.isFinite(returnRob) && !Number.isFinite(inbound.requiredM3)) {
-      warnings.push("Συμπλήρωσε heel για την πρόβλεψη με το ενεργό BOR.");
-    }
+    if (availableToDischarge < required) warnings.push("Το διαθέσιμο LNG στο λιμάνι εκφόρτωσης δεν καλύπτει το Required Heel.");
+    if (hasPlannedHeel && heelBalance.planned < required) warnings.push("Το προαιρετικό heel του πλάνου είναι μικρότερο από το Required Heel.");
     if (inbound.rateOutsideTable) warnings.push("Η ταχύτητα επιστροφής είναι εκτός της καμπύλης καταναλώσεων.");
-    return { rows, outbound, inbound, ladenBalance, heelBalance, message: warnings.join(" ") };
+    return { rows, outbound, inbound, requiredForecast, ladenBalance, heelBalance, message: warnings.join(" ") };
   } catch (error) {
     return { rows, outbound, ladenBalance, heelBalance, message: step + " · " + error.message };
   }
@@ -191,14 +261,17 @@ function heelBalanceRows(balance) {
   const { planned, required, postDischarge, returnRob } = balance;
   const rows = [
     ["Required heel · στο τέλος εκφόρτωσης", cargoVolumeText(required)],
-    ["Heel που θα κρατήσεις · στο τέλος εκφόρτωσης", cargoVolumeText(planned)],
+    ...(Number.isFinite(planned) ? [
+      ["Heel του πλάνου · στο τέλος εκφόρτωσης", cargoVolumeText(planned)],
+      ["Εκφόρτωση με heel του πλάνου", cargoVolumeText(balance.plannedEdq)],
+    ] : []),
   ];
   if (Number.isFinite(planned) && Number.isFinite(required)) {
     const difference = planned - required;
-    rows.push([difference < 0 ? "Έλλειμμα heel" : "Πλεόνασμα heel", cargoVolumeText(Math.abs(difference))]);
-    rows.push(["Μείωση στο λιμάνι έως την αναχώρηση Ballast", cargoVolumeText(postDischarge)]);
-    rows.push(["Heel αναχώρησης Ballast", cargoVolumeText(returnRob)]);
+    rows.push([difference < 0 ? "Έλλειμμα heel του πλάνου" : "Πλεόνασμα heel του πλάνου", cargoVolumeText(Math.abs(difference))]);
   }
+  if (postDischarge > 0) rows.push(["Μείωση στο λιμάνι έως την αναχώρηση Ballast", cargoVolumeText(postDischarge)]);
+  rows.push(["ROB αναχώρησης Ballast βάσει Required Heel", cargoVolumeText(returnRob)]);
   return rows;
 }
 
@@ -213,11 +286,12 @@ function passageReadout(voyage, byArrival) {
 }
 
 function voyageSequence(linked) {
-  const { outbound, inbound, heelBalance } = linked;
+  const { outbound, inbound, heelBalance, requiredForecast } = linked;
   const laden = outbound?.arrRobM3 >= 0 && Number.isFinite(outbound.etaArrEpoch) && !outbound.scheduleErrors.length
     ? outbound : null;
   const last = S.legs.at(-1);
   const loadingPort = laden?.from.name ?? PORTS[S.legs[0]?.fromIdx]?.name ?? "Λιμάνι φόρτωσης";
+  const nextPort = inbound?.to.name ?? PORTS[linkedReturnRoute().at(-1)?.toIdx]?.name ?? loadingPort;
   const dischargePort = laden?.to.name ?? PORTS[last?.toIdx]?.name ?? "Λιμάνι εκφόρτωσης";
   const quantity = (label, value) => label + " " + cargoVolumeText(value, false);
   const speed = voyage => Number.isFinite(voyage?.speed) ? fmt(voyage.speed, 2) + " kn" : "—";
@@ -234,19 +308,19 @@ function voyageSequence(linked) {
   const rows = [
     ["1. Αναχώρηση φόρτωσης · " + loadingPort, [utcText(laden?.depEpoch), quantity("ROB αναχώρησης", laden?.departureLng)]],
     ["Πλους Laden", [...passage(laden, S.speedMode === "eta"), ...consumptions(laden)]],
-    ["2. Άφιξη εκφόρτωσης · " + dischargePort, [utcText(laden?.etaArrEpoch), quantity("QOB άφιξης", laden?.arrRobM3), quantity("EDQ", heelBalance?.edq)]],
+    ["2. Άφιξη εκφόρτωσης · " + dischargePort, [utcText(laden?.etaArrEpoch), quantity("QOB άφιξης", laden?.arrRobM3), quantity("EDQ βάσει Required Heel", heelBalance?.edq)]],
     ["3. Αναχώρηση εκφόρτωσης · " + dischargePort, [
       utcText(heelBalance?.departure),
-      quantity("Required heel κατά την αναχώρηση", inbound?.requiredM3),
-      ...(inbound ? [
+      quantity("Required heel κατά την αναχώρηση", requiredForecast?.requiredM3),
+      ...(requiredForecast ? [
         [
-          quantity("Μείωση LNG στον πλου", inbound.cargoUsed),
-          quantity("Safety margin LNG", inbound.marginM3),
-          quantity("Cool-down", inbound.coolTotal),
+          quantity("Μείωση LNG στον πλου", requiredForecast.cargoUsed),
+          quantity("Safety margin LNG", requiredForecast.marginM3),
+          quantity("Cool-down", requiredForecast.coolTotal),
         ].join(" + "),
       ] : []),
-      quantity("ROB αναχώρησης", heelBalance?.returnRob >= 0 ? heelBalance.returnRob : NaN),
-      quantity("Heel που κρατάς στο τέλος εκφόρτωσης", heelBalance?.planned),
+      quantity("ROB αναχώρησης βάσει Required Heel", heelBalance?.returnRob >= 0 ? heelBalance.returnRob : NaN),
+      ...(Number.isFinite(heelBalance?.planned) ? [quantity("Heel του πλάνου στο τέλος εκφόρτωσης", heelBalance.planned)] : []),
       ...(heelBalance?.postDischarge > 0 ? [
         quantity("Μείωση LNG στο λιμάνι έως την αναχώρηση", heelBalance.postDischarge),
         quantity("Required heel στο τέλος εκφόρτωσης", heelBalance.required),
@@ -255,7 +329,7 @@ function voyageSequence(linked) {
     ["Πλους Ballast", [
       ...passage(inbound, S.linkedVoyage?.speedMode === "eta"), ...consumptions(inbound),
     ]],
-    ["4. Άφιξη επόμενης φόρτωσης · " + loadingPort, [
+    ["4. Άφιξη επόμενης φόρτωσης · " + nextPort, [
       utcText(inbound?.etaArrEpoch), quantity("ROB άφιξης", inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN),
       quantity("Max Intake", inbound?.maxIntakeM3),
     ]],
@@ -309,7 +383,7 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   if (!result && returning && linked?.heelBalance) summary.push(...heelBalanceRows(linked.heelBalance));
   $("consVoyageTable").innerHTML = summary.length ? tableHtml(["Μέγεθος", "Πρόβλεψη"], summary) : "";
   renderConsumptionDetails(result);
-  const { rows = [], message, inbound, ladenBalance, heelBalance } = linked ?? {};
+  const { rows = [], message, inbound, requiredForecast, ladenBalance, heelBalance } = linked ?? {};
   const usesTransfer = !panel.hidden && linkedCargoSource() === "transfer";
   $("manualDepartureRob").hidden = usesTransfer;
   $("linkedDepartureNote").hidden = !usesTransfer;
@@ -330,14 +404,14 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   $("heelDifference").textContent = cargoVolumeText(Math.abs(difference), false);
   $("heelDifference").classList.toggle("bad", difference < 0);
   $("requiredHeelBreakdown").hidden = !Number.isFinite(heelBalance?.required);
-  $("requiredHeelBreakdown").textContent = inbound ? [
-    "Μείωση LNG Ballast " + cargoVolumeText(inbound.cargoUsed, false),
-    "LNG Safety Margin " + cargoVolumeText(inbound.marginM3, false),
-    "Cooling Down " + cargoVolumeText(inbound.coolTotal, false),
+  $("requiredHeelBreakdown").textContent = requiredForecast ? [
+    "Μείωση LNG Ballast " + cargoVolumeText(requiredForecast.cargoUsed, false),
+    "LNG Safety Margin " + cargoVolumeText(requiredForecast.marginM3, false),
+    "Cooling Down " + cargoVolumeText(requiredForecast.coolTotal, false),
     ...(heelBalance?.postDischarge > 0 ? ["μείωση στο λιμάνι " + cargoVolumeText(heelBalance.postDischarge, false)] : []),
   ].join(" + ") : "";
   $("returnHeading").textContent = "3. Αναχώρηση Ballast · " + main.to.name;
-  $("returnArrivalHeading").textContent = "4. Άφιξη · " + main.from.name;
+  $("returnArrivalHeading").textContent = "4. Άφιξη · " + (inbound?.to.name ?? PORTS[linkedReturnRoute().at(-1)?.toIdx]?.name ?? main.from.name);
   $("returnEta").textContent = utcText(inbound?.etaArrEpoch);
   $("returnArrivalRob").textContent = cargoVolumeText(inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN, false);
   $("returnMaxIntake").textContent = cargoVolumeText(inbound?.maxIntakeM3, false);
@@ -345,9 +419,10 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   $("linkedHeelBalance").hidden = !heelBalance;
   $("linkedLadenTable").innerHTML = ladenBalance ? tableHtml(["Μεταβολή LNG", "Πρόβλεψη"], ladenBalanceRows(ladenBalance)) : "";
   $("linkedHeelTable").innerHTML = heelBalance ? tableHtml(["Heel επιστροφής", "Πρόβλεψη"], heelBalanceRows(heelBalance)) : "";
-  $("returnHeadline").textContent = inbound
-    ? passageReadout(inbound, byArrival)
-    : "";
+  $("ballastPassage").textContent = requiredForecast ? passageReadout(requiredForecast, byArrival) : "";
+  $("ballastDistance").placeholder = Number.isFinite(requiredForecast?.distance) ? fmt(requiredForecast.distance) + " nm από τη διαδρομή" : "Από τη διαδρομή";
+  $("plannedEdq").textContent = cargoVolumeText(heelBalance?.plannedEdq, false);
+  $("returnRoute").hidden = settings.distance != null && settings.distance !== "";
   $("linkedStatus").textContent = message ?? "";
   $("linkedStatus").hidden = !message;
   $("linkedTimeline").closest("details").hidden = !rows.length;
@@ -360,8 +435,10 @@ function syncLinkedVoyage() {
   if (!panel) return;
   const settings = S.linkedVoyage ?? {};
   const fields = { method: "forms", speedMode: "speed", ...settings, source: linkedCargoSource() };
+  $("nextLoadingPort").innerHTML = '<option value="">Ίδιο με το αρχικό λιμάνι φόρτωσης</option>' + portOptions(Number(settings.nextPort ?? -1));
   for (const input of panel.querySelectorAll("[data-linked]")) input.value = fields[input.dataset.linked] ?? "";
-  $("returnRoute").innerHTML = linkedReturnRoute().map((leg, i, route) => {
+  const detailedSettings = { ...settings, distance: "" };
+  $("returnRoute").innerHTML = linkedReturnRoute({ ...S, linkedVoyage: detailedSettings }).map((leg, i, route) => {
     const edit = settings.returnLegs?.[i] ?? {};
     const field = (key, type, label, extra = "") => {
       const value = type === "datetime-local" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(edit[key] ?? "") ? "" : edit[key] ?? "";
@@ -412,6 +489,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const settings = S.linkedVoyage ??= {};
     if (linked) {
       settings[linked] = event.target.value;
+      if (linked === "nextPort") syncLinkedVoyage();
       if (linked === "speedMode") {
         const legacyTarget = settings.returnLegs?.[S.legs.length - 1]?.stopArrival;
         if (settings.speedMode === "eta" && !settings.arrival && legacyTarget) settings.arrival = legacyTarget;

@@ -365,7 +365,7 @@ function cargoArrivalRows(r, linked) {
       ["QOB άφιξης", cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN)],
     ];
     if (linked.heelBalance) {
-      rows.push(["EDQ", cargoVolumeText(linked.heelBalance.edq)]);
+      rows.push(["EDQ βάσει Required Heel", cargoVolumeText(linked.heelBalance.edq)]);
       rows.push(...heelBalanceRows(linked.heelBalance));
     }
     if (linked.inbound) rows.push(["Max Intake επόμενης φόρτωσης", cargoVolumeText(linked.inbound.maxIntakeM3)]);
@@ -788,6 +788,9 @@ function syncInputs() {
 /* ---------- Σκέλη πλόου (UI) ---------- */
 function renderLegs() {
   if (typeof syncLinkedVoyage === "function") syncLinkedVoyage();
+  const direct = S.legs.length === 1 ? S.legs[0] : null;
+  $("ladenDistanceField").hidden = !direct || Boolean(legCanal(direct.fromIdx, direct.toIdx));
+  $("ladenDistance").value = direct?.distMode === "manual" ? direct.manualDist : "";
   $("voyageFrom").innerHTML = portOptions(S.legs[0]?.fromIdx);
   $("voyageTo").innerHTML = portOptions(S.legs.at(-1)?.toIdx);
   const box = $("legsList");
@@ -970,11 +973,20 @@ function render() {
   $("outboundEtaFields").hidden = S.speedMode !== "eta";
   $("outboundSpeedFields").hidden = S.speedMode !== "speed";
   $("outboundPassage").textContent = passageReadout(r, S.speedMode === "eta");
-  $("outboundRobLabel").textContent = isBallast ? "ROB άφιξης" : "QOB άφιξης";
+  $("outboundRobLabel").textContent = "LNG ROB άφιξης";
   $("outboundRob").textContent = cargoVolumeText(r.arrRobM3 >= 0 ? r.arrRobM3 : NaN, false);
-  $("outboundCargoLabel").textContent = isBallast ? "Max Intake" : "EDQ";
+  $("outboundCargoLabel").textContent = isBallast ? "Max Intake" : "EDQ βάσει Required Heel";
   $("outboundCargo").textContent = cargoVolumeText(isBallast ? r.maxIntakeM3 : edq, false);
   $("outboundCargo").closest(".result-box").hidden = r.cargoMode !== "laden" && !isBallast;
+  const edqFormula = $("edqFormula");
+  const requiredHeel = linked?.heelBalance?.required;
+  const beforeDischarge = r.arrRobM3 - linked?.heelBalance?.availableToDischarge;
+  edqFormula.hidden = !linked;
+  edqFormula.textContent = Number.isFinite(requiredHeel)
+    ? "LNG ROB άφιξης " + cargoVolumeText(r.arrRobM3, false)
+      + (beforeDischarge > 0 ? " − μείωση πριν την εκφόρτωση " + cargoVolumeText(beforeDischarge, false) : "")
+      + " − Required Heel " + cargoVolumeText(requiredHeel, false)
+    : "Συμπλήρωσε το σκέλος Ballast για να υπολογιστεί το EDQ.";
   $("resSpeedNote").textContent = r.scheduleErrors.join(" ") || (linked ? "" : r.cargoNote);
   $("marginPct").closest(".field").hidden = S.marginMode !== "pct";
   $("marginAmount").closest(".field").hidden = !["lng", "fo", "mdo"].includes(S.marginMode);
@@ -1132,6 +1144,17 @@ function init() {
   setupTabs();
   render();
 
+  $("ladenDistance").addEventListener("change", ({ target }) => {
+    if (S.legs.length !== 1) return;
+    const leg = S.legs[0];
+    if (target.value === "") leg.distMode = "gc";
+    else {
+      leg.distMode = "manual";
+      leg.manualDist = num(target.value);
+    }
+    renderLegs();
+    render();
+  });
   $("voyageFrom").addEventListener("change", ({ target }) => {
     const port = $("legsList").querySelector('[data-legi="0"][data-f="fromIdx"]');
     if (port) {
