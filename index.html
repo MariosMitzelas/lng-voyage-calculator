@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/style.css?v=22">
 </head>
 <body>
 
@@ -58,6 +58,9 @@
         <div class="grid-form">
           <label class="field">Από <select id="voyageFrom"></select></label>
           <label class="field">Προς <select id="voyageTo"></select></label>
+          <label class="field" id="ladenDistanceField">Απόσταση Laden (nm)
+            <input type="number" id="ladenDistance" min="0.01" step="any" placeholder="Αυτόματα">
+          </label>
         </div>
         <fieldset class="grid-form">
           <legend>Ημερομηνία και ώρα αναχώρησης</legend>
@@ -156,9 +159,10 @@
         <div class="alert" id="resTransit" hidden></div>
         <div class="result-grid">
           <div class="result-box"><div class="r-label">ETA (UTC)</div><div class="r-value" id="resArrUtc">—</div></div>
-          <div class="result-box"><div class="r-label" id="outboundRobLabel">QOB άφιξης</div><div class="r-value" id="outboundRob">—</div></div>
+          <div class="result-box"><div class="r-label" id="outboundRobLabel">LNG ROB άφιξης</div><div class="r-value" id="outboundRob">—</div></div>
           <div class="result-box hero"><div class="r-label" id="outboundCargoLabel">EDQ</div><div class="r-value" id="outboundCargo">—</div></div>
         </div>
+        <p class="hint" id="edqFormula" hidden></p>
         <p class="hint" id="resSpeedNote"></p>
         <div id="standaloneAllowances" hidden></div>
       </section>
@@ -166,8 +170,11 @@
       <div id="linkedVoyage">
         <section class="card voyage-stage" id="returnDeparture">
           <h2 id="returnHeading">3. Αναχώρηση Ballast</h2>
-          <div class="ops-actions">
-            <button class="btn small" type="button" data-open-transfer="unloading">Ramp-down εκφόρτωσης</button>
+          <div class="grid-form">
+            <label class="field">Επόμενο λιμάνι φόρτωσης <select data-linked="nextPort" id="nextLoadingPort"></select></label>
+            <label class="field">Απόσταση Ballast (nm)
+              <input data-linked="distance" id="ballastDistance" type="number" min="0.01" step="any" placeholder="Από τη διαδρομή">
+            </label>
           </div>
           <div class="grid-form">
             <label class="field">Αναχώρηση από το λιμάνι εκφόρτωσης (UTC)<input data-linked="departure" type="datetime-local"></label>
@@ -205,15 +212,25 @@
               </div>
             </fieldset>
           </div>
+          <div class="voyage-readout" id="ballastPassage"></div>
           <div class="result-grid">
-            <label class="field" id="plannedHeelField">Heel που θα κρατήσω (m³)
-              <input type="number" min="0" step="any" data-analysis="heel">
-            </label>
-            <div class="result-box" id="transferHeel" hidden><div class="r-label">Heel από Cargo Transfer</div><div class="r-value" id="transferHeelValue">—</div></div>
-            <div class="result-box"><div class="r-label">Required Heel στο τέλος εκφόρτωσης</div><div class="r-value" id="returnRequiredHeel">—</div></div>
-            <div class="result-box"><div class="r-label" id="heelDifferenceLabel">Πλεόνασμα / έλλειμμα heel</div><div class="r-value" id="heelDifference">—</div></div>
+            <div class="result-box hero"><div class="r-label">Required Heel στο τέλος εκφόρτωσης</div><div class="r-value" id="returnRequiredHeel">—</div></div>
           </div>
           <p class="hint" id="requiredHeelBreakdown" hidden></p>
+          <details class="voyage-options">
+            <summary>Heel του πλάνου και ramp-down εκφόρτωσης</summary>
+            <div class="result-grid">
+              <label class="field" id="plannedHeelField">Heel που θα κρατήσω (m³)
+                <input type="number" min="0" step="any" data-analysis="heel">
+              </label>
+              <div class="result-box" id="transferHeel" hidden><div class="r-label">Heel από Cargo Transfer</div><div class="r-value" id="transferHeelValue">—</div></div>
+              <div class="result-box"><div class="r-label" id="heelDifferenceLabel">Πλεόνασμα / έλλειμμα heel</div><div class="r-value" id="heelDifference">—</div></div>
+              <div class="result-box"><div class="r-label">Εκφόρτωση με heel του πλάνου</div><div class="r-value" id="plannedEdq">—</div></div>
+            </div>
+          <div class="ops-actions">
+            <button class="btn small" type="button" data-open-transfer="unloading">Ramp-down εκφόρτωσης</button>
+          </div>
+          </details>
           <p class="hint" id="linkedStatus" role="status" hidden></p>
           <details class="voyage-options">
             <summary>Διαδρομή επιστροφής και στοιχεία λιμένα</summary>
@@ -237,10 +254,9 @@
 
         <section class="card voyage-stage">
           <h2 id="returnArrivalHeading">4. Άφιξη στο επόμενο λιμάνι φόρτωσης</h2>
-          <div class="voyage-readout" id="returnHeadline"></div>
           <div class="result-grid">
             <div class="result-box"><div class="r-label">ETA (UTC)</div><div class="r-value" id="returnEta">—</div></div>
-            <div class="result-box"><div class="r-label">ROB άφιξης</div><div class="r-value" id="returnArrivalRob">—</div></div>
+            <div class="result-box"><div class="r-label">ROB άφιξης βάσει Required Heel</div><div class="r-value" id="returnArrivalRob">—</div></div>
             <div class="result-box hero"><div class="r-label">Max Intake</div><div class="r-value" id="returnMaxIntake">—</div></div>
           </div>
           <details class="voyage-options">
@@ -722,7 +738,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/ports.js"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/app.js?v=22"></script>
   <script src="js/operations.js?v=15"></script>
   <script src="js/charter.js"></script>
   <script src="js/calibration.js"></script>
@@ -730,6 +746,6 @@
   <script src="js/ramp.js?v=15"></script>
   <script src="js/ramp-forms.js?v=21"></script>
   <script src="js/tank-step.js?v=15"></script>
-  <script src="js/linked.js?v=21"></script>
+  <script src="js/linked.js?v=22"></script>
 </body>
 </html>
