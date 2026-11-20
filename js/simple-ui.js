@@ -156,7 +156,7 @@ function departureTankAllocation(state = S) {
     assigned += row.volume;
     const max = txBlank(row.tank.max) ? Infinity : txNum(row.tank.max);
     const fillLimit = Number(state.fillPct) > 0 ? Number(state.fillPct) / 100 : 1;
-    if (row.volume > Math.min(row.capacity, row.capacity * fillLimit, max) + 1e-7)
+    if (row.volume > Math.min(row.capacity, row.capacity * fillLimit, max) + 0.001)
       throw new Error("Το ROB ξεπερνά το επιτρεπόμενο γέμισμα της " + row.tank.id + ". Μείωσε τα συνολικά m³.");
     if (row.volume + 1e-7 < (txNum(row.tank.start) || 0))
       throw new Error("Ο στόχος της " + row.tank.id + " είναι μικρότερος από το αρχικό ROB φόρτωσης.");
