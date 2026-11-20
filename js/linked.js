@@ -45,6 +45,7 @@ function linkedTransfer(plan, mode, method) {
 }
 
 function linkedCargoSource() {
+  if (typeof renderSimpleCurve === "function") return "manual";
   return S.linkedVoyage?.source
     ?? (S.linkedVoyage?.method || S.transfer?.loading?.tanks?.length ? "transfer" : "manual");
 }
