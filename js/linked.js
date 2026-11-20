@@ -476,7 +476,7 @@ document.addEventListener("DOMContentLoaded", () => {
     (S.transfer ??= {}).mode = button.dataset.openTransfer;
     $("rampForms").open = true;
     syncTransferPlanner();
-    document.querySelector('[data-panel="panel-discharge"]').click();
+    document.querySelector('[data-transfer-mode="' + button.dataset.openTransfer + '"]').click();
   }));
   const transferPlanner = $("transferPlanner");
   transferPlanner?.addEventListener("change", () => render());

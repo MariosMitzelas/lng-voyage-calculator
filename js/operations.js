@@ -57,6 +57,7 @@ function manualBorRate(config) {
 }
 
 function effectiveBoilOff(state, phase) {
+  if (typeof renderSimpleCurve === "function") return { rate: NaN, basis: "rob" };
   const override = manualBorPhases.includes(phase) ? state.borOverrides?.[phase] : null;
   if (override?.enabled === true) {
     const rate = manualBorRate(override);
