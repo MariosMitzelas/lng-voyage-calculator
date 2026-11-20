@@ -36,6 +36,7 @@ function buildSimpleUI() {
   for (const id of ["linkedLadenTable", "linkedHeelTable", "linkedTimeline"]) $(id).closest("details").hidden = true;
   $("plannedHeelField").closest("details").hidden = true;
   $("tankStep").hidden = true;
+  document.querySelector('[data-linked="source"]').closest("details").hidden = true;
   $("transferMode").closest(".field").hidden = true;
   $("transferPlanner").querySelector("h2").id = "simpleTransferTitle";
   $("simplePhase").addEventListener("change", renderSimpleCurve);
@@ -95,6 +96,7 @@ function simpleCurveRows(phase) {
 }
 
 function renderSimpleCurve() {
+  $("departureLngLabel").textContent = "LNG ROB μετά τη φόρτωση / στην αναχώρηση (m³)";
   const phase = $("simplePhase").value;
   const cp = validCharterParty(S.charterParty) && charterEnabled(S.charterParty, phase);
   $("simpleCurveSource").value = cp ? "charter" : "manual";
