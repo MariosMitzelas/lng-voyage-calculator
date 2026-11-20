@@ -1111,6 +1111,7 @@ function render() {
   if (typeof renderCargoCalibration === "function") renderCargoCalibration();
   renderOperationsControls();
   runScenarios();
+  if (typeof renderSimpleCurve === "function") renderSimpleCurve();
 }
 
 /* ---------- Tabs ---------- */
@@ -1123,6 +1124,11 @@ function setupTabs() {
       panels.forEach((p) => p.classList.remove("active"));
       t.setAttribute("aria-selected", "true");
       $(t.dataset.panel).classList.add("active");
+      if (t.dataset.transferMode) {
+        (S.transfer ??= {}).mode = t.dataset.transferMode;
+        syncTransferPlanner();
+        renderSimpleCurve();
+      }
       window.scrollTo({ top: 0 });
     })
   );

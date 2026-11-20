@@ -27,6 +27,7 @@ function charterEnabled(cp, key) {
 }
 
 function charterDensity(state) {
+  if (typeof renderSimpleCurve === "function") return positiveNumber(state.density, DEFAULTS.density);
   return positiveNumber(optionalNumber(state.charterParty?.inputs?.density), positiveNumber(state.density, DEFAULTS.density));
 }
 
