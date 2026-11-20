@@ -202,6 +202,13 @@
                 <label for="marginAmount" id="marginAmountLabel">Ποσότητα</label>
                 <input type="number" id="marginAmount" step="any" min="0">
               </div>
+              <label class="field">Buffer days · επιπλέον ημέρες
+                <input type="number" id="bufferDays" step="any" min="0" value="0">
+              </label>
+              <label class="field">Buffer consumption LNG (m³/ημέρα)
+                <input type="number" id="bufferLngDay" step="any" min="0" value="0">
+              </label>
+              <p class="hint">Buffer = ημέρες × ημερήσια κατανάλωση. Επιπλέον απόθεμα για καθυστέρηση, χωριστά από το safety margin. Αν δεν χρησιμοποιηθεί, παραμένει στο ROB· δεν αλλάζει το ETA.</p>
               <div class="field">
                 <label for="coolTanks">Cool-down δεξαμενών (m³)</label>
                 <input type="number" id="coolTanks" step="1" min="0" value="150">
@@ -257,7 +264,7 @@
           <div class="result-grid">
             <div class="result-box"><div class="r-label">ETA (UTC)</div><div class="r-value" id="returnEta">—</div></div>
             <div class="result-box"><div class="r-label">ROB πριν το cooling-down</div><div class="r-value" id="returnSeaArrivalRob">—</div></div>
-            <div class="result-box"><div class="r-label">ROB μετά το cooling-down · safety margin</div><div class="r-value" id="returnArrivalRob">—</div></div>
+            <div class="result-box"><div class="r-label">ROB μετά το cooling-down · margin + buffer</div><div class="r-value" id="returnArrivalRob">—</div></div>
             <div class="result-box hero"><div class="r-label">Max Intake</div><div class="r-value" id="returnMaxIntake">—</div></div>
           </div>
           <details class="voyage-options">
@@ -739,15 +746,15 @@
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/ports.js"></script>
-  <script src="js/app.js?v=27"></script>
-  <script src="js/operations.js?v=27"></script>
-  <script src="js/charter.js?v=27"></script>
+  <script src="js/app.js?v=28"></script>
+  <script src="js/operations.js?v=28"></script>
+  <script src="js/charter.js?v=28"></script>
   <script src="js/calibration.js"></script>
-  <script src="js/transfer.js?v=27"></script>
-  <script src="js/ramp.js?v=27"></script>
-  <script src="js/ramp-forms.js?v=27"></script>
-  <script src="js/tank-step.js?v=27"></script>
-  <script src="js/linked.js?v=27"></script>
-  <script src="js/simple-ui.js?v=27"></script>
+  <script src="js/transfer.js?v=28"></script>
+  <script src="js/ramp.js?v=28"></script>
+  <script src="js/ramp-forms.js?v=28"></script>
+  <script src="js/tank-step.js?v=28"></script>
+  <script src="js/linked.js?v=28"></script>
+  <script src="js/simple-ui.js?v=28"></script>
 </body>
 </html>
