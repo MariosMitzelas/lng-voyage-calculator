@@ -33,6 +33,18 @@ function buildSimpleUI() {
   params.innerHTML = "<summary>Στοιχεία φορτίου</summary><div class='grid-form'></div>";
   params.querySelector(".grid-form").append(density, $("capacity").closest(".field"), $("fillPct").closest(".field"));
   $("ladenDeparture").append(params);
+  const allocation = document.createElement("div");
+  allocation.innerHTML = '<h3>ROB αναχώρησης ανά δεξαμενή</h3><p class="hint">Ίδιο ποσοστό πλήρωσης βάσει της χωρητικότητας 100% κάθε δεξαμενής.</p>'
+    + '<p id="simpleTankStatus" role="status"></p><div class="table-wrap"><table class="data-table" id="simpleTankAllocation"></table></div>';
+  $("manualDepartureRob").parentElement.after(allocation);
+  allocation.addEventListener("change", event => {
+    const id = event.target.dataset.tankCapacity;
+    if (!id || !event.target.checkValidity()) return;
+    const tank = S.transfer.loading.tanks.find(row => row.id === id);
+    tank.capacity = event.target.value;
+    render();
+    renderRampForms(true);
+  });
   for (const id of ["linkedLadenTable", "linkedHeelTable", "linkedTimeline"]) $(id).closest("details").hidden = true;
   $("plannedHeelField").closest("details").hidden = true;
   $("tankStep").hidden = true;
@@ -96,6 +108,8 @@ function simpleCurveRows(phase) {
 }
 
 function renderSimpleCurve() {
+  renderSimpleTankAllocation();
+  renderRampForms(true);
   $("departureLngLabel").textContent = "LNG ROB μετά τη φόρτωση / στην αναχώρηση (m³)";
   const phase = $("simplePhase").value;
   const cp = validCharterParty(S.charterParty) && charterEnabled(S.charterParty, phase);
@@ -117,6 +131,63 @@ function renderSimpleCurve() {
     + (phase === "laden" ? "Laden" : "Ballast") + " · Density " + fmt(S.density, 4) + " t/m³";
   $("simpleTransferTitle").textContent = S.transfer?.mode === "unloading" ? "Ramp-down εκφόρτωσης" : "Ramp-down φόρτωσης";
   $("linkedTimeline").closest("details").hidden = true;
+}
+
+
+// A common volume percentage, not a calibrated sounding/height in metres.
+function departureTankAllocation(state = S) {
+  const profile = cargoCalibration(state);
+  const plan = state.transfer?.loading;
+  const tanks = plan?.tanks?.length ? plan.tanks : profile?.tanks ?? [];
+  if (!tanks.length) throw new Error("Συμπλήρωσε τις χωρητικότητες 100% των δεξαμενών.");
+  const rows = tanks.map(tank => {
+    const calibrated = profile?.tanks.find(row => row.id === cargoTankId(tank.id));
+    const capacity = calibrated?.points.at(-1).volumeM3 ?? txNum(tank.capacity);
+    if (!(capacity > 0) || !Number.isFinite(capacity)) throw new Error("Συμπλήρωσε τη χωρητικότητα 100% για όλες τις δεξαμενές.");
+    return { tank, capacity, calibrated: Boolean(calibrated) };
+  });
+  const totalCapacity = rows.reduce((sum, row) => sum + row.capacity, 0);
+  const rob = txNum(state.robLng);
+  if (!Number.isFinite(rob) || rob < 0) throw new Error("Βάλε έγκυρο LNG ROB αναχώρησης.");
+  const fraction = rob / totalCapacity;
+  let assigned = 0;
+  rows.forEach((row, index) => {
+    row.volume = index === rows.length - 1 ? rob - assigned : rob * row.capacity / totalCapacity;
+    assigned += row.volume;
+    const max = txBlank(row.tank.max) ? Infinity : txNum(row.tank.max);
+    const fillLimit = Number(state.fillPct) > 0 ? Number(state.fillPct) / 100 : 1;
+    if (row.volume > Math.min(row.capacity, row.capacity * fillLimit, max) + 1e-7)
+      throw new Error("Το ROB ξεπερνά το επιτρεπόμενο γέμισμα της " + row.tank.id + ". Μείωσε τα συνολικά m³.");
+    if (row.volume + 1e-7 < (txNum(row.tank.start) || 0))
+      throw new Error("Ο στόχος της " + row.tank.id + " είναι μικρότερος από το αρχικό ROB φόρτωσης.");
+  });
+  return { rows, percent: fraction * 100, total: rob };
+}
+
+function renderSimpleTankAllocation() {
+  const profile = cargoCalibration();
+  const transfer = S.transfer ??= {};
+  const plan = transfer.loading ??= {};
+  if (!plan.tanks?.length) plan.tanks = (profile?.tanks ?? standardTankIds.map(id => ({ id }))).map(tank => ({ id: tank.id, start: 0 }));
+  let result;
+  try {
+    result = departureTankAllocation();
+    for (const row of result.rows) row.tank.target = row.volume;
+    (plan.form ??= {}).target = result.total;
+    $("simpleTankStatus").textContent = fmt(result.percent, 2) + "% σε όλες · Σύνολο " + fmt(result.total, 3) + " m³";
+  } catch (error) {
+    $("simpleTankStatus").textContent = error.message;
+  }
+  $("simpleTankAllocation").innerHTML = tableHtml(["Δεξαμενή", "Χωρητικότητα 100% (m³)", "ROB αναχώρησης (m³)", "Πλήρωση"], []);
+  $("simpleTankAllocation").querySelector("tbody").innerHTML = plan.tanks.map(tank => {
+    const row = result?.rows.find(row => row.tank === tank);
+    const calibrated = profile?.tanks.find(entry => entry.id === cargoTankId(tank.id));
+    const capacity = calibrated?.points.at(-1).volumeM3 ?? tank.capacity ?? "";
+    return "<tr><td>" + opsEscape(pickerTankLabel(tank.id)) + "</td><td>"
+      + (calibrated ? fmt(capacity, 3) : '<input type="number" min="0.001" step="any" data-tank-capacity="' + opsEscape(tank.id)
+        + '" aria-label="Χωρητικότητα 100% ' + opsEscape(tank.id) + '" value="' + opsEscape(capacity) + '">')
+      + "</td><td>" + (row ? fmt(row.volume, 3) : "—") + "</td><td>" + (row ? fmt(result.percent, 2) + "%" : "—") + "</td></tr>";
+  }).join("");
 }
 
 buildSimpleUI();

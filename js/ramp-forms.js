@@ -188,6 +188,7 @@ function renderRampForms(sync = false) {
   $("formStatus").textContent = "";
   try {
     let result;
+    if (loading && typeof departureTankAllocation === "function") departureTankAllocation();
     if (config.linked === "plan") result = linkedRampForm(plan, loading ? "loading" : "unloading");
     else if (loading) result = loadingRampForm(config, formNumber(config.initial ?? "", "ROB αναφοράς"), formNumber(config.target ?? "", "τελικός στόχος"));
     else {
