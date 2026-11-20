@@ -318,6 +318,7 @@ function voyageSequence(linked) {
         [
           quantity("Μείωση LNG στον πλου", requiredForecast.cargoUsed),
           quantity("Safety margin LNG", requiredForecast.marginM3),
+          quantity("Buffer days LNG", requiredForecast.bufferM3),
           quantity("Cool-down", requiredForecast.coolTotal),
         ].join(" + "),
       ] : []),
@@ -378,8 +379,9 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
       ["Heel που θα κρατήσεις · στην αναχώρηση", cargoVolumeText(result.departureLng)],
     ]),
     ["ROB μετά το cooling-down", cargoVolumeText(result.arrRobM3 >= 0 ? result.arrRobM3 : NaN)],
+    ["Buffer days · επιπλέον απόθεμα", cargoVolumeText(result.bufferM3)],
     ["Safety margin / cool-down", result.marginText + " / " + cargoVolumeText(result.coolTotal, false)],
-    ["Πλεόνασμα πέρα από το safety margin", cargoVolumeText(result.arrRobM3Margin)],
+    ["Πλεόνασμα πέρα από margin και buffer", cargoVolumeText(result.arrRobM3Margin)],
     ["Max Intake βάσει ROB άφιξης", cargoVolumeText(result.maxIntakeM3)]
   );
   if (!result && returning && linked?.heelBalance) summary.push(...heelBalanceRows(linked.heelBalance));
@@ -409,6 +411,7 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   $("requiredHeelBreakdown").textContent = requiredForecast ? [
     "Μείωση LNG Ballast " + cargoVolumeText(requiredForecast.cargoUsed, false),
     "LNG Safety Margin " + cargoVolumeText(requiredForecast.marginM3, false),
+    "Buffer " + fmt(requiredForecast.bufferDays, 2) + " ημέρες × " + fmt(requiredForecast.bufferLngDay, 2) + " m³/ημέρα = " + cargoVolumeText(requiredForecast.bufferM3, false),
     "Cooling Down " + cargoVolumeText(requiredForecast.coolTotal, false),
     ...(heelBalance?.postDischarge > 0 ? ["μείωση στο λιμάνι " + cargoVolumeText(heelBalance.postDischarge, false)] : []),
   ].join(" + ") : "";

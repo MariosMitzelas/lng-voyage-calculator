@@ -74,7 +74,7 @@ const DEFAULTS = {
   ],
   // Πλοίο / φορτία
   density: 0.45, capacity: 174000, fillPct: 98.5,
-  marginMode: "pct", marginPct: 10, marginAmount: "", coolTanks: 150, coolLine: 30,
+  marginMode: "pct", marginPct: 10, marginAmount: "", coolTanks: 150, coolLine: 30, bufferDays: 0, bufferLngDay: 0,
   cvLNG: 12430, cvFOE: 11500,
   // ROB αναχώρησης
   robLng: 4000, robFo: 800, robMdo: 400,
@@ -304,7 +304,10 @@ function compute(departureOverride) {
   const marginText = marginMode === "fo" ? `${fmt(marginFo, 2)} t LSHFO`
     : marginMode === "mdo" ? `${fmt(marginMdo, 2)} t LSMGO`
     : `${fmt(marginM3, 2)} m³ LNG${marginMode === "pct" && marginPct ? ` (${marginPct}%)` : ""}`;
-  const requiredM3 = cargoUsed + marginM3 + coolTotal;
+  const bufferDays = isBallast ? Math.max(0, num(S.bufferDays) || 0) : 0;
+  const bufferLngDay = isBallast ? Math.max(0, num(S.bufferLngDay) || 0) : 0;
+  const bufferM3 = bufferDays * bufferLngDay;
+  const requiredM3 = cargoUsed + bufferM3 + marginM3 + coolTotal;
 
   // ROB άφιξης
   const departureLng = optionalNumber(S.robLng);
@@ -342,7 +345,7 @@ function compute(departureOverride) {
     depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
     rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
-    foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, marginM3, marginText, requiredM3,
+    foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, bufferDays, bufferLngDay, bufferM3, marginM3, marginText, requiredM3,
     departureLng, seaArrRobM3, arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     cargoMode, cargoNote, cargoUsed, usableM3, dischargeHeel, edqM3, maxIntakeM3,
   };
@@ -631,6 +634,7 @@ ${row("FO αναχώρησης / διαθέσιμο" + (r.cargoMode === "ballast
 ${row("MDO αναχώρησης / διαθέσιμο" + (r.cargoMode === "ballast" ? " μετά το margin" : " στην άφιξη"), fmt(S.robMdo, 1) + " / " + fmt(r.arrMdo, 1) + " t")}
 ${r.cargoMode === "ballast" ? row("Cool-down δεξαμενές + γραμμή", fmt(r.coolTotal, 0) + " m³") : ""}
 ${r.cargoMode === "ballast" ? row("Safety margin", r.marginText) : ""}
+${r.cargoMode === "ballast" ? row("Buffer days · επιπλέον απόθεμα", fmt(r.bufferDays, 2) + " ημέρες × " + fmt(r.bufferLngDay, 2) + " m³/ημέρα = " + fmt(r.bufferM3, 2) + " m³") : ""}
 ${r.cargoMode === "ballast" ? row("Συνολική απαιτούμενη ποσότητα", fmt(r.requiredM3, 0) + " m³") : ""}
 </table>
 <h2>Εκτίμηση φορτίου στην άφιξη</h2><table>
@@ -777,6 +781,8 @@ function syncInputs() {
   });
   $("coolTanks").value = S.coolTanks;
   $("coolLine").value = S.coolLine;
+  $("bufferDays").value = S.bufferDays ?? 0;
+  $("bufferLngDay").value = S.bufferLngDay ?? 0;
   $("cvLNG").value = S.cvLNG;
   $("cvFOE").value = S.cvFOE;
   $("robLng").value = S.robLng;
@@ -1259,6 +1265,8 @@ function init() {
   );
   bind("coolTanks", "coolTanks");
   bind("coolLine", "coolLine");
+  bind("bufferDays", "bufferDays");
+  bind("bufferLngDay", "bufferLngDay");
 
 
   $("robLng").addEventListener("change", event => {
