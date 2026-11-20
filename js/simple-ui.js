@@ -128,7 +128,7 @@ function renderSimpleCurve() {
       .map(([key, label]) => "<td>" + cell(row[key], i, key, label) + "</td>").join("")
     + "<td>" + (cp ? "" : '<button type="button" class="btn small" data-curve-delete="' + i + '" aria-label="Διαγραφή σειράς ' + (i + 1) + '">×</button>') + "</td></tr>").join("");
   $("simpleCurveStatus").textContent = (cp ? "Charter Party" : "Χειροκίνητος πίνακας") + " · "
-    + (phase === "laden" ? "Laden" : "Ballast") + " · Density " + fmt(S.density, 4) + " t/m³";
+    + (phase === "laden" ? "Laden" : "Ballast") + " · Density " + fmt(S.density, 4) + " t/m³ · 1 m³ LNG = 0,501 t FOE";
   $("simpleTransferTitle").textContent = S.transfer?.mode === "unloading" ? "Ramp-down εκφόρτωσης" : "Ramp-down φόρτωσης";
   $("linkedTimeline").closest("details").hidden = true;
 }

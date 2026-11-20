@@ -36,8 +36,9 @@ function charterSeaValues(cp, row, phase, density) {
   const eq = row[column];
   const pilot = row[column + 1];
   const treatment = cp.inputs?.pilotTreatment;
-  const tonnes = Math.max(0, eq - (treatment === "included" ? pilot : 0)) * cp.lhv.lsgo / cp.lhv.lng;
-  return { speed: row[0], lng: tonnes / density, tonnes, density, fo: 0,
+  const lng = Math.max(0, eq - (treatment === "included" ? pilot : 0)) / LNG_FOE_PER_M3;
+  const tonnes = lng * density;
+  return { speed: row[0], lng, tonnes, density, fo: 0,
     mdo: ["included", "additional"].includes(treatment) ? pilot : 0, eq, pilot };
 }
 
@@ -59,7 +60,7 @@ function charterPortRate(state, legIndex) {
   const eq = cp.port[selected?.mode];
   if (!Object.hasOwn(charterModes, selected?.mode) || !["lng", "lsgo"].includes(selected?.fuel)) return null;
   const density = charterDensity(state);
-  return selected.fuel === "lng" ? { lng: eq * cp.lhv.lsgo / cp.lhv.lng / density, fo: 0, mdo: 0, density }
+  return selected.fuel === "lng" ? { lng: eq / LNG_FOE_PER_M3, fo: 0, mdo: 0, density }
     : { lng: 0, fo: 0, mdo: eq, density };
 }
 
@@ -72,12 +73,9 @@ function charterWinter(state, kind) {
 
 function charterFoe(cp, phaseForecast) {
   const rows = phaseForecast.rows;
-  if (!validCharterParty(cp) || !rows.length || !(charterEnabled(cp, "fixedFoe") || rows.some(row => row.charter))) return null;
-  const thermal = cp.lhv.lng / cp.lhv.lsgo;
-  const fixed = charterEnabled(cp, "fixedFoe");
-  const lng = rows.reduce((sum, row) => sum + (fixed ? row.demand * cp.fixedFoe : row.lngT * thermal), 0);
-  const total = lng + phaseForecast.foT * cp.lhv.hfo / cp.lhv.lsgo + phaseForecast.mdoT;
-  return { lng, total, factor: fixed ? cp.fixedFoe : thermal, fixed };
+  const lng = rows.reduce((sum, row) => sum + row.demand * LNG_FOE_PER_M3, 0);
+  const total = lng + phaseForecast.foT + phaseForecast.mdoT;
+  return { lng, total, factor: LNG_FOE_PER_M3, fixed: true };
 }
 
 function charterRules(state, legs) {

@@ -105,15 +105,15 @@ function localToEpoch(dateStr, timeStr, tzHours) {
 }
 
 /* ---------- Πυκνότητα, μετατροπές και καμπύλη καταναλώσεων ---------- */
+const LNG_FOE_PER_M3 = 0.501; // t FOE per m³ LNG, fixed for every consumption table.
 const positiveNumber = (value, fallback) => Number.isFinite(value) && value > 0 ? value : fallback;
 
 function lngConversions(row, state = S) {
   const density = positiveNumber(row.density, positiveNumber(state.density, DEFAULTS.density));
-  const factor = state.cvLNG / state.cvFOE;
   const entered = row.lngInput ?? row.lng;
-  const tonnes = row.lngUnit === "t" ? entered : row.lngUnit === "foe" ? entered / factor : entered * density;
-  const volume = row.lngUnit === "t" || row.lngUnit === "foe" ? tonnes / density : entered;
-  return { density, volume, tonnes, foe: tonnes * factor };
+  const volume = row.lngUnit === "t" ? entered / density : row.lngUnit === "foe" ? entered / LNG_FOE_PER_M3 : entered;
+  const tonnes = volume * density;
+  return { density, volume, tonnes, foe: volume * LNG_FOE_PER_M3 };
 }
 
 function interpolate(table, speed, state = S) {
@@ -279,12 +279,12 @@ function compute(departureOverride) {
   const foTDay = perDay("foT");
   const mdoTDay = perDay("mdoT");
 
-  // FOE: 1 t LNG = CV_LNG / CV_FOE t FOE (kcal/kg)
+  // Fixed LNG volume equivalent, independent of cargo density.
   const charterEquivalent = typeof charterFoe === "function" ? charterFoe(S.charterParty, phaseForecast) : null;
-  const foeFactor = charterEquivalent?.factor ?? S.cvLNG / S.cvFOE;
-  const foeLNG = charterEquivalent?.lng ?? lngT * foeFactor;
+  const foeFactor = LNG_FOE_PER_M3;
+  const foeLNG = lngM3 * foeFactor;
   const foeTotal = charterEquivalent?.total ?? foeLNG + foT + mdoT;
-  const lngFoeDay = (charterEquivalent?.fixed ? lngM3Day : lngTDay) * foeFactor;
+  const lngFoeDay = lngM3Day * foeFactor;
 
   const phases = new Set(legs.flatMap((leg, i) => leg.canal ? [] : [S.legs[i].phase === "ballast" ? "ballast" : "laden"]));
   const cargoMode = phases.size === 1 ? [...phases][0] : phases.size > 1 ? "mixed" : "";
@@ -308,7 +308,8 @@ function compute(departureOverride) {
 
   // ROB άφιξης
   const departureLng = optionalNumber(S.robLng);
-  const arrRobM3 = departureLng - cargoUsed;
+  const seaArrRobM3 = departureLng - cargoUsed;
+  const arrRobM3 = seaArrRobM3 - coolTotal;
   const arrRobM3Margin = departureLng - requiredM3;
   const arrFo = S.robFo - foT - marginFo;
   const arrMdo = S.robMdo - mdoT - marginMdo;
@@ -342,7 +343,7 @@ function compute(departureOverride) {
     rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
     foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, marginM3, marginText, requiredM3,
-    departureLng, arrRobM3, arrRobM3Margin, arrFo, arrMdo,
+    departureLng, seaArrRobM3, arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     cargoMode, cargoNote, cargoUsed, usableM3, dischargeHeel, edqM3, maxIntakeM3,
   };
 }
@@ -911,7 +912,7 @@ function renderConsumptionDetails(r) {
   if ($("consPerLeg")) $("consPerLeg").innerHTML = tableHtml(
     ["Σκέλος", "Φάση", "kn", "Ώρες", "LNG m³", "LNG t", "LNG t FOE", "LSHFO t", "MDO t"],
     (r?.phaseForecast.rows ?? []).map(row => [row.leg, phaseNames[row.kind], ["laden", "ballast"].includes(row.kind) ? fmt(r.legs[row.leg - 1].speed, 2) : "—",
-      fmt(row.time, 2), fmt(row.demand, 2), fmt(row.lngT, 2), fmt((r.charterEquivalent?.fixed ? row.demand : row.lngT) * r.foeFactor, 2), fmt(row.foT, 2), fmt(row.mdoT, 2)])
+      fmt(row.time, 2), fmt(row.demand, 2), fmt(row.lngT, 2), fmt(row.demand * r.foeFactor, 2), fmt(row.foT, 2), fmt(row.mdoT, 2)])
   );
   if (Number.isFinite(r?.lngM3Day)) {
     $("consAt").textContent = `Μέση ημερήσια στην πλεύση · ${fmt(r.speed, 2)} kn`;
@@ -1080,7 +1081,7 @@ function render() {
   // FOE panel
   $("foeFactorOut").textContent = fmt(r.foeFactor, 3);
   if ($("foeFactorUnit")) $("foeFactorUnit").textContent = r.charterEquivalent?.fixed ? "t FOE ανά m³ LNG · συμβατικός"
-    : r.charterEquivalent ? "t LSGO-eq ανά t LNG · LHV Charter Party" : "t FOE ανά t LNG";
+    : r.charterEquivalent ? "t LSGO-eq ανά t LNG · LHV Charter Party" : "t FOE ανά m³ LNG · σταθερός";
   $("foeLngOut").textContent = bad(r.foeLNG) ? "—" : fmt(r.foeLNG, 1) + " t";
   $("foeAllOut").textContent = bad(r.foeTotal) ? "—" : fmt(r.foeTotal, 1) + " t";
 

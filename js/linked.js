@@ -217,6 +217,7 @@ function computeLinkedVoyage(main) {
     if (!canRetainHeel) {
       inbound.departureLng = NaN;
       inbound.arrRobM3 = NaN;
+      inbound.seaArrRobM3 = NaN;
       inbound.arrRobM3Margin = NaN;
       inbound.maxIntakeM3 = NaN;
     }
@@ -331,7 +332,7 @@ function voyageSequence(linked) {
       ...passage(inbound, S.linkedVoyage?.speedMode === "eta"), ...consumptions(inbound),
     ]],
     ["4. Άφιξη επόμενης φόρτωσης · " + nextPort, [
-      utcText(inbound?.etaArrEpoch), quantity("ROB άφιξης", inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN),
+      utcText(inbound?.etaArrEpoch), quantity("ROB πριν το cooling-down", inbound?.seaArrRobM3), quantity("ROB μετά το cooling-down", inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN),
       quantity("Max Intake", inbound?.maxIntakeM3),
     ]],
   ];
@@ -374,11 +375,11 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   if (result?.cargoMode === "ballast") summary.push(
     ...(linked?.heelBalance && returning ? heelBalanceRows(linked.heelBalance) : [
       ["Required heel · στην αναχώρηση", cargoVolumeText(result.requiredM3)],
-      ["Heel που θα κρατήσεις · στην αναχώρηση", cargoVolumeText(result.arrRobM3 + result.cargoUsed)],
+      ["Heel που θα κρατήσεις · στην αναχώρηση", cargoVolumeText(result.departureLng)],
     ]),
-    ["ROB άφιξης", cargoVolumeText(result.arrRobM3 >= 0 ? result.arrRobM3 : NaN)],
+    ["ROB μετά το cooling-down", cargoVolumeText(result.arrRobM3 >= 0 ? result.arrRobM3 : NaN)],
     ["Safety margin / cool-down", result.marginText + " / " + cargoVolumeText(result.coolTotal, false)],
-    ["LNG διαθέσιμο μετά τις προβλέψεις", cargoVolumeText(result.arrRobM3Margin)],
+    ["Πλεόνασμα πέρα από το safety margin", cargoVolumeText(result.arrRobM3Margin)],
     ["Max Intake βάσει ROB άφιξης", cargoVolumeText(result.maxIntakeM3)]
   );
   if (!result && returning && linked?.heelBalance) summary.push(...heelBalanceRows(linked.heelBalance));
@@ -414,6 +415,7 @@ function renderLinkedVoyage(main = compute(), linkedPlan) {
   $("returnHeading").textContent = "3. Αναχώρηση Ballast · " + main.to.name;
   $("returnArrivalHeading").textContent = "4. Άφιξη · " + (inbound?.to.name ?? PORTS[linkedReturnRoute().at(-1)?.toIdx]?.name ?? main.from.name);
   $("returnEta").textContent = utcText(inbound?.etaArrEpoch);
+  $("returnSeaArrivalRob").textContent = cargoVolumeText(inbound?.seaArrRobM3 >= 0 ? inbound.seaArrRobM3 : NaN, false);
   $("returnArrivalRob").textContent = cargoVolumeText(inbound?.arrRobM3 >= 0 ? inbound.arrRobM3 : NaN, false);
   $("returnMaxIntake").textContent = cargoVolumeText(inbound?.maxIntakeM3, false);
   $("linkedLadenBalance").hidden = !ladenBalance;
