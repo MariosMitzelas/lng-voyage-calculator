@@ -256,7 +256,8 @@
           <h2 id="returnArrivalHeading">4. Άφιξη στο επόμενο λιμάνι φόρτωσης</h2>
           <div class="result-grid">
             <div class="result-box"><div class="r-label">ETA (UTC)</div><div class="r-value" id="returnEta">—</div></div>
-            <div class="result-box"><div class="r-label">ROB άφιξης βάσει Required Heel</div><div class="r-value" id="returnArrivalRob">—</div></div>
+            <div class="result-box"><div class="r-label">ROB πριν το cooling-down</div><div class="r-value" id="returnSeaArrivalRob">—</div></div>
+            <div class="result-box"><div class="r-label">ROB μετά το cooling-down · safety margin</div><div class="r-value" id="returnArrivalRob">—</div></div>
             <div class="result-box hero"><div class="r-label">Max Intake</div><div class="r-value" id="returnMaxIntake">—</div></div>
           </div>
           <details class="voyage-options">
@@ -486,7 +487,7 @@
           </div>
         </div>
         <div id="ballastArrival" hidden>
-          <p class="hint">Max Intake = χρησιμοποιήσιμος όγκος στο μέγιστο γέμισμα μείον το εκτιμώμενο heel κατά την άφιξη. Το margin και το cool-down εμφανίζονται στο ισοζύγιο αποθεμάτων.</p>
+          <p class="hint">Max Intake = χρησιμοποιήσιμος όγκος μείον ROB μετά το cooling-down. Το safety margin παραμένει ως απόθεμα.</p>
           <div class="result-grid">
             <div class="result-box"><div class="r-label">Χρησιμοποιήσιμος όγκος δεξαμενών</div><div class="r-value" id="maxUsable" data-testid="text-usable">—</div></div>
             <div class="result-box hero"><div class="r-label">MAX INTAKE</div><div class="r-value" id="maxIntakeOut" data-testid="text-maxintake">—</div><div class="r-sub" id="maxIntakeTOut">—</div></div>
@@ -738,15 +739,15 @@
   <div id="toast" role="status" aria-live="polite"></div>
 
   <script src="js/ports.js"></script>
-  <script src="js/app.js?v=26"></script>
-  <script src="js/operations.js?v=26"></script>
-  <script src="js/charter.js"></script>
+  <script src="js/app.js?v=27"></script>
+  <script src="js/operations.js?v=27"></script>
+  <script src="js/charter.js?v=27"></script>
   <script src="js/calibration.js"></script>
-  <script src="js/transfer.js?v=21"></script>
-  <script src="js/ramp.js?v=15"></script>
-  <script src="js/ramp-forms.js?v=26"></script>
-  <script src="js/tank-step.js?v=15"></script>
-  <script src="js/linked.js?v=26"></script>
-  <script src="js/simple-ui.js?v=26"></script>
+  <script src="js/transfer.js?v=27"></script>
+  <script src="js/ramp.js?v=27"></script>
+  <script src="js/ramp-forms.js?v=27"></script>
+  <script src="js/tank-step.js?v=27"></script>
+  <script src="js/linked.js?v=27"></script>
+  <script src="js/simple-ui.js?v=27"></script>
 </body>
 </html>
