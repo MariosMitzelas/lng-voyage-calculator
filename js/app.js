@@ -1260,7 +1260,11 @@ function init() {
   bind("coolLine", "coolLine");
 
 
-  bind("robLng", "robLng");
+  $("robLng").addEventListener("change", event => {
+    S.robLng = event.target.value;
+    render();
+    if (typeof renderSimpleTankAllocation === "function") renderRampForms(true);
+  });
   bind("robFo", "robFo");
   bind("robMdo", "robMdo");
 
