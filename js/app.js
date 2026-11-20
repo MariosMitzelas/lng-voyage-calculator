@@ -93,6 +93,19 @@ function migrateState(s) {
   if (s.marginPct === null) d.marginPct = "";
   if (!Number.isFinite(s.suezHours)) d.suezHours = 14;
   if (!Number.isFinite(s.panamaHours)) d.panamaHours = 12;
+  if (s.bufferPerLegVersion !== 1) {
+    const days = Math.max(0, Number(s.bufferDays) || 0);
+    const rate = Math.max(0, Number(s.bufferLngDay) || 0);
+    if (days || rate) {
+      if (d.legs.every(leg => leg.phase === "ballast")) {
+        d.legs[0] = { ...d.legs[0], bufferDays: days, bufferLngDay: rate };
+      } else {
+        d.linkedVoyage = { ...d.linkedVoyage, returnLegs: { ...d.linkedVoyage?.returnLegs,
+          0: { ...d.linkedVoyage?.returnLegs?.[0], bufferDays: days, bufferLngDay: rate } } };
+      }
+    }
+    d.bufferPerLegVersion = 1;
+  }
   return d;
 }
 
@@ -304,15 +317,18 @@ function compute(departureOverride) {
   const marginText = marginMode === "fo" ? `${fmt(marginFo, 2)} t LSHFO`
     : marginMode === "mdo" ? `${fmt(marginMdo, 2)} t LSMGO`
     : `${fmt(marginM3, 2)} m³ LNG${marginMode === "pct" && marginPct ? ` (${marginPct}%)` : ""}`;
-  const bufferDays = isBallast ? Math.max(0, num(S.bufferDays) || 0) : 0;
-  const bufferLngDay = isBallast ? Math.max(0, num(S.bufferLngDay) || 0) : 0;
-  const bufferM3 = bufferDays * bufferLngDay;
+  const bufferRows = S.legs.map(leg => ({
+    days: Math.max(0, num(leg.bufferDays) || 0), rate: Math.max(0, num(leg.bufferLngDay) || 0),
+  }));
+  const bufferDays = bufferRows.reduce((sum, row) => sum + row.days, 0);
+  const bufferM3 = bufferRows.reduce((sum, row) => sum + row.days * row.rate, 0);
+  const bufferLngDay = bufferDays > 0 ? bufferM3 / bufferDays : 0;
   const requiredM3 = cargoUsed + bufferM3 + marginM3 + coolTotal;
 
   // ROB άφιξης
   const departureLng = optionalNumber(S.robLng);
   const seaArrRobM3 = departureLng - cargoUsed;
-  const arrRobM3 = seaArrRobM3 - coolTotal;
+  const arrRobM3 = seaArrRobM3 - coolTotal - (isBallast ? 0 : bufferM3);
   const arrRobM3Margin = departureLng - requiredM3;
   const arrFo = S.robFo - foT - marginFo;
   const arrMdo = S.robMdo - mdoT - marginMdo;
@@ -345,7 +361,7 @@ function compute(departureOverride) {
     depEpoch, arrEpoch, hours, seaHours, days, seaDays, speed, etaArrEpoch,
     rateOutsideTable: rates.some((rate, i) => !legs[i].canal && rate?.extrapolated),
     lngM3Day, lngTDay, foTDay, mdoTDay, lngM3, lngT, foT, mdoT,
-    foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, bufferDays, bufferLngDay, bufferM3, marginM3, marginText, requiredM3,
+    foeFactor, foeLNG, foeTotal, lngFoeDay, charterEquivalent, coolTotal, bufferRows, bufferDays, bufferLngDay, bufferM3, marginM3, marginText, requiredM3,
     departureLng, seaArrRobM3, arrRobM3, arrRobM3Margin, arrFo, arrMdo,
     cargoMode, cargoNote, cargoUsed, usableM3, dischargeHeel, edqM3, maxIntakeM3,
   };

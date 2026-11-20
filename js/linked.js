@@ -7,7 +7,8 @@ function linkedReturnRoute(state = S) {
   const nextPort = settings.nextPort === "" || settings.nextPort == null ? loadingPort : Number(settings.nextPort);
   if (settings.distance != null && settings.distance !== "") {
     return [{ fromIdx: outbound.at(-1)?.toIdx, toIdx: nextPort, distMode: "manual",
-      manualDist: Number(settings.distance), phase: "ballast" }];
+      manualDist: Number(settings.distance), phase: "ballast",
+      bufferDays: settings.returnLegs?.[0]?.bufferDays ?? 0, bufferLngDay: settings.returnLegs?.[0]?.bufferLngDay ?? 0 }];
   }
   return outbound.map((_, i) => {
     const reverse = outbound[outbound.length - 1 - i];
@@ -20,7 +21,7 @@ function linkedReturnRoute(state = S) {
       distMode: differentPort ? "gc" : edit.manualDist !== undefined && edit.manualDist !== "" ? "manual" : edit.useGc || state.linkedVoyage?.returnLegs?.[i - 1]?.useGc ? "gc" : reverse.distMode,
       manualDist: edit.manualDist !== undefined && edit.manualDist !== "" ? Number(edit.manualDist) : reverse.manualDist,
       stopArrival: last && (settings.speedMode || differentPort) ? undefined : edit.stopArrival, stopDeparture: last ? undefined : edit.stopDeparture, stopTz: 0,
-      phase: "ballast",
+      phase: "ballast", bufferDays: edit.bufferDays ?? 0, bufferLngDay: edit.bufferLngDay ?? 0,
     };
   });
 }
@@ -283,6 +284,7 @@ function passageReadout(voyage, byArrival) {
     fmt(voyage.days, 2) + " ημέρες",
     (byArrival ? "Απαιτούμενη ταχύτητα " : "Ταχύτητα ") + fmt(voyage.speed, 2) + " kn",
     "Μείωση LNG " + cargoVolumeText(voyage.cargoUsed, false),
+    ...(voyage.bufferM3 > 0 ? ["Πρόβλεψη buffer " + cargoVolumeText(voyage.bufferM3, false)] : []),
     "LSMGO " + fmt(voyage.mdoT, 1) + " t · LSHFO " + fmt(voyage.foT, 1) + " t",
   ].join(" · ");
 }
