@@ -2,6 +2,17 @@
 
 // Keep the existing calculation and import entry points while exposing one planning flow.
 function buildSimpleUI() {
+  $("panel-voyage").addEventListener("change", event => {
+    const { bufferRoute, bufferIndex, bufferKey } = event.target.dataset;
+    if (!bufferKey || !event.target.checkValidity()) return;
+    const index = Number(bufferIndex);
+    const leg = bufferRoute === "return"
+      ? ((S.linkedVoyage ??= {}).returnLegs ??= {})[index] ??= {}
+      : S.legs[index];
+    leg[bufferKey] = event.target.value === "" ? 0 : Number(event.target.value);
+    S.bufferPerLegVersion = 1;
+    render();
+  });
   const tabs = document.querySelector(".tabs");
   tabs.innerHTML = [
     ["panel-voyage", "Ταξίδι", "tab-voyage", ""],
@@ -108,6 +119,7 @@ function simpleCurveRows(phase) {
 }
 
 function renderSimpleCurve() {
+  renderLegBuffers();
   renderSimpleTankAllocation();
   renderRampForms(true);
   $("departureLngLabel").textContent = "LNG ROB μετά τη φόρτωση / στην αναχώρηση (m³)";
@@ -188,6 +200,25 @@ function renderSimpleTankAllocation() {
         + '" aria-label="Χωρητικότητα 100% ' + opsEscape(tank.id) + '" value="' + opsEscape(capacity) + '">')
       + "</td><td>" + (row ? fmt(row.volume, 3) : "—") + "</td><td>" + (row ? fmt(result.percent, 2) + "%" : "—") + "</td></tr>";
   }).join("");
+}
+
+
+function renderLegBuffers() {
+  const build = (route, returning) => route.map((leg, index) => {
+    const phase = leg.phase === "ballast" ? "Ballast" : "Laden";
+    const field = (key, label) => '<label class="field">' + label + '<input type="number" min="0" step="any" data-buffer-route="'
+      + (returning ? 'return' : 'outbound') + '" data-buffer-index="' + index + '" data-buffer-key="' + key
+      + '" aria-label="' + phase + ' ' + (index + 1) + ' · ' + label + '" value="' + opsEscape(leg[key] ?? 0) + '"></label>';
+    const total = Math.max(0, Number(leg.bufferDays) || 0) * Math.max(0, Number(leg.bufferLngDay) || 0);
+    return '<fieldset><legend>' + phase + ' ' + (index + 1) + ' · Buffer · '
+      + opsEscape(PORTS[leg.fromIdx]?.name ?? '') + ' → ' + opsEscape(PORTS[leg.toIdx]?.name ?? '')
+      + '</legend><div class="grid-form">' + field('bufferDays', 'Buffer days') + field('bufferLngDay', 'LNG m³/ημέρα')
+      + '</div><p class="hint">Πρόβλεψη buffer: ' + fmt(total, 2) + ' m³ · '
+      + (phase === 'Laden' ? 'Αφαιρείται από το εκτιμώμενο ROB άφιξης και το EDQ.' : 'Προστίθεται στο required heel. Αν δεν χρησιμοποιηθεί, παραμένει στο ROB άφιξης.')
+      + ' Το ETA παραμένει βάσει του προγραμματισμένου πλου.</p></fieldset>';
+  }).join('');
+  $("ladenLegBuffers").innerHTML = build(S.legs, false);
+  $("ballastLegBuffers").innerHTML = build(linkedReturnRoute(), true);
 }
 
 buildSimpleUI();
